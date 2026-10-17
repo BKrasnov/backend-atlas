@@ -3,7 +3,7 @@
   'use strict';
   document.addEventListener('DOMContentLoaded', () => {
     const atlas = window.atlasWorkspace;
-    if (!atlas) return;
+    if (!atlas) { delete document.documentElement.dataset.atlasAccess; return; }
     const CONFIG = 'backend-atlas-server-url';
     const CONNECTION = 'backend-atlas-server-connection';
     const BACKUP = 'backend-atlas-before-server-import';
@@ -11,6 +11,7 @@
     let connected = false, paused = false, applying = false, busy = false;
     let generation = 0, changed = 0, uploaded = 0, timer, retryTimer, retries = 0;
     let remembered = false, storageWarning = false;
+    let accessLocked = false;
     let status = 'Локальный режим';
     try { endpoint = localStorage.getItem(CONFIG) || ''; } catch {}
     if (!endpoint) endpoint = document.querySelector('meta[name="atlas-api-url"]')?.content || '';
@@ -35,9 +36,52 @@
     indicator.setAttribute('aria-live', 'polite');
     const host = document.querySelector('.side-bottom');
     host.prepend(indicator); host.prepend(button);
-    function setStatus(value) { status = value; indicator.textContent = value; const el = document.querySelector('#sync-feedback'); if (el) el.textContent = value; }
+    function setStatus(value) { status = value; indicator.textContent = value; for (const el of document.querySelectorAll('#sync-feedback, #atlas-login-feedback')) el.textContent = value; }
     setStatus(status);
 
+    function lockAccess() {
+      accessLocked = true;
+      document.documentElement.dataset.atlasAccess = 'locked';
+      document.querySelector('.app').inert = true;
+      closeDialog();
+      let dialog = document.querySelector('#atlas-access-dialog');
+      if (!dialog) {
+        dialog = document.createElement('dialog');
+        dialog.id = 'atlas-access-dialog'; dialog.className = 'dialog';
+        dialog.setAttribute('aria-labelledby', 'atlas-login-title');
+        dialog.innerHTML = `<div class="dialog-head"><h2 id="atlas-login-title">Вход в Backend Atlas</h2></div><div class="dialog-body"><p class="x-small">Введите ключ доступа, чтобы открыть атлас и загрузить ваши данные с сервера.</p><form id="atlas-login-form" class="x-form" style="margin-top:18px"><label class="x-field">Ключ доступа<input id="atlas-login-key" type="password" autocomplete="off" required placeholder="Ключ доступа к атласу"></label><p id="atlas-login-feedback" class="x-small" role="status" aria-live="polite"></p><button class="btn btn-primary" type="submit">Войти</button></form><p class="x-small" style="margin-top:16px">После входа ключ запомнится в этом браузере.</p></div>`;
+        dialog.addEventListener('cancel', event => event.preventDefault());
+        dialog.querySelector('form').addEventListener('submit', event => { event.preventDefault(); login().catch(report); });
+        document.body.append(dialog);
+      }
+      dialog.querySelector('#atlas-login-feedback').textContent = status;
+      if (!dialog.open) dialog.showModal();
+    }
+    function unlockAccess() {
+      accessLocked = false;
+      delete document.documentElement.dataset.atlasAccess;
+      document.querySelector('.app').inert = false;
+      document.querySelector('#atlas-access-dialog')?.remove();
+    }
+    async function login() {
+      if (busy) return;
+      const field = document.querySelector('#atlas-login-key');
+      const nextToken = field.value.trim();
+      if (!nextToken) return;
+      endpoint = normalizeUrl(endpoint); token = nextToken; field.value = '';
+      const attempt = ++generation;
+      busy = true; setStatus('Проверяем ключ и загружаем данные…');
+      try {
+        const result = await request('GET');
+        if (attempt !== generation) return;
+        remote = result; revision = result.revision;
+        if (result.workspace) applyRemote(result.workspace);
+        changed = uploaded = 0; connected = true; paused = false; retries = 0;
+        if (!result.workspace) ++changed;
+        rememberConnection(); unlockAccess(); setStatus('Синхронизировано');
+      } finally { busy = false; }
+      schedule();
+    }
     function normalizeUrl(value) {
       const url = new URL(value.trim());
       const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
@@ -123,6 +167,8 @@
         const result = await request('GET');
         if (attempt !== generation) return;
         remote = result;
+        // A successful GET confirms the remembered key before showing cached content.
+        unlockAccess();
         if (changed !== uploaded) {
           if (result.revision !== revision) {
             const error = Error('На сервере есть другая версия. Локальные правки сохранены. Откройте синхронизацию и выберите источник данных.');
@@ -169,21 +215,22 @@
     }
     function disconnect() {
       forgetConnection(); ++generation; clearTimeout(timer); clearTimeout(retryTimer); connected = false; paused = false; token = ''; remote = null; revision = null;
-      setStatus('Локальный режим'); closeDialog();
+      setStatus('Введите ключ доступа'); closeDialog(); if (endpoint) lockAccess();
     }
     function report(error) {
       paused = true;
       clearTimeout(retryTimer);
-      if (error.status === 401) { forgetConnection(); token = ''; connected = false; }
+      if (error.status === 401) { forgetConnection(); token = ''; connected = false; if (endpoint) lockAccess(); }
       setStatus(error.status === 409 ? 'Конфликт версий — откройте синхронизацию' : 'Синхронизация приостановлена');
       if (!retries) notify(error.message);
       const el = document.querySelector('#sync-feedback'); if (el) el.textContent = error.message;
+      const loginFeedback = document.querySelector('#atlas-login-feedback'); if (loginFeedback) loginFeedback.textContent = error.message;
       if (connected && (!error.status || error.status >= 500) && error.retryable !== false) {
         const delay = Math.min(30000, 2000 * 2 ** Math.min(retries++, 4));
         retryTimer = setTimeout(() => resume().catch(report), delay);
       }
     }
-    document.addEventListener('atlas:change', () => { if (applying) return; ++changed; rememberConnection(); schedule(); });
+    document.addEventListener('atlas:change', () => { if (applying || accessLocked) return; ++changed; rememberConnection(); schedule(); });
     document.addEventListener('click', event => {
       const action = event.target.closest('[data-sync-action]')?.dataset.syncAction;
       if (!action) return;
@@ -200,6 +247,10 @@
     });
     window.addEventListener('online', () => { if (connected && paused && !status.startsWith('Конфликт')) resume().catch(report); });
     window.addEventListener('beforeunload', event => { if (connected && changed !== uploaded) { event.preventDefault(); event.returnValue = ''; } });
-    if (remembered) resume().catch(report);
+    if (endpoint && /^https?:$/.test(location.protocol)) {
+      setStatus(remembered ? 'Проверяем сохранённый ключ…' : 'Введите ключ доступа');
+      lockAccess();
+      if (remembered) resume().catch(report);
+    } else unlockAccess();
   }, {once:true});
 })();
