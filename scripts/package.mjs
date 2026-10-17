@@ -9,7 +9,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const stage = await mkdtemp(join(tmpdir(), 'atlas-package-'));
 const output = resolve(root, 'output/backend-atlas-deploy.tar.gz');
 try {
-  const files = ['README.md','package.json','.env.example','.gitignore','.dockerignore','Dockerfile','compose.yaml'];
+  const files = ['README.md','package.json','.env.example','.gitignore','.gitattributes','.dockerignore','Dockerfile','compose.yaml'];
   for (const file of files) await copyFile(resolve(root, file), join(stage, file));
   for (const dir of ['client','server','scripts','deploy','tests','.github']) await cp(resolve(root, dir), join(stage, dir), {recursive:true});
   // Distribute the clean public source, even if the author's source had a saved profile.

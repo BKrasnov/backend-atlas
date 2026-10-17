@@ -1,0 +1,28 @@
+[Unit]
+Description=Backend Atlas private API
+After=network.target
+
+[Service]
+Type=simple
+User=backend-atlas
+Group=backend-atlas
+WorkingDirectory=/opt/backend-atlas/current
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3341
+Environment=DATA_FILE=/var/lib/backend-atlas/workspace.json
+EnvironmentFile=/etc/backend-atlas.env
+ExecStart=/opt/backend-atlas/runtime/current/bin/node server/index.mjs
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/backend-atlas
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

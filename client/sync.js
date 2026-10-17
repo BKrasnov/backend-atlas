@@ -11,6 +11,7 @@
     let generation = 0, changed = 0, uploaded = 0, timer;
     let status = 'Локальный режим';
     try { endpoint = localStorage.getItem(CONFIG) || ''; } catch {}
+    if (!endpoint) endpoint = document.querySelector('meta[name="atlas-api-url"]')?.content || '';
     if (!endpoint && /^https?:$/.test(location.protocol) && !location.hostname.endsWith('.github.io')) endpoint = location.origin;
 
     const button = document.createElement('button');
@@ -30,9 +31,9 @@
     function normalizeUrl(value) {
       const url = new URL(value.trim());
       const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-      if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) throw Error('Введите только адрес сервера, например https://atlas.example.com.');
+      if (url.username || url.password || url.search || url.hash || /%2f|%5c/i.test(url.pathname)) throw Error('Введите адрес API без логина, пароля и параметров, например https://example.com/atlas-api.');
       if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) throw Error('Для сервера нужен HTTPS. HTTP разрешён только на localhost.');
-      return url.origin;
+      return url.origin + url.pathname.replace(/\/+$/, '');
     }
     function settings() {
       openDialog('Сервер и синхронизация', `<p class="x-small">Подключите собственный сервер, чтобы продолжать работу с одним профилем на разных устройствах. Локальная копия сохраняется в браузере.</p><div class="x-form" style="margin-top:16px"><label class="x-field">Адрес сервера<input id="sync-url" type="url" value="${esc(endpoint)}" placeholder="https://atlas.example.com" autocomplete="url"></label><label class="x-field">Ключ доступа<input id="sync-token" type="password" autocomplete="off" placeholder="${token ? 'Ключ уже введён в этой вкладке' : 'Ключ из настроек вашего сервера'}"></label></div><div class="x-note">Ключ действует только до закрытия или перезагрузки вкладки. Он не включается в HTML, JSON или настройки браузера.</div><p id="sync-feedback" class="x-small" role="status">${esc(status)}</p><div class="x-row" style="margin-top:15px"><button class="btn btn-primary" data-sync-action="connect">Проверить подключение</button>${connected || token ? '<button class="btn" data-sync-action="disconnect">Отключить</button>' : ''}<button class="btn" data-sync-action="backup">Скачать локальную копию · JSON</button>${hasBackup() ? '<button class="btn" data-sync-action="download-backup">Копия до загрузки с сервера</button>' : ''}</div><p class="x-small" style="margin-top:15px">На GitHub Pages укажите HTTPS-адрес API на VPS. Сам GitHub Pages хранит только страницу атласа.</p>`, '<button class="btn" data-action="close-dialog">Закрыть</button>');

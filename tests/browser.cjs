@@ -25,9 +25,12 @@ function capture(ports){
   const token='browser-test-'.padEnd(64,'b');
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'atlas-browser-'));
   const server=await createAtlasServer({token,dataFile:path.join(dir,'workspace.json'),htmlFile:path.join(root,'public','index.html')});
+  // An existing Nginx site strips /atlas-api before forwarding to the real API.
+  server.prependListener('request',request=>{if(request.url.startsWith('/atlas-api/'))request.url=request.url.slice('/atlas-api'.length);});
   let browser;
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const port=server.address().port,url=`http://127.0.0.1:${port}`;
+  const apiUrl=url+'/atlas-api';
   try{
     browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL || (process.platform==='win32'?'msedge':undefined),headless:true});capture([port]);
     const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true});
@@ -36,7 +39,7 @@ function capture(ports){
     await page.locator('#candidate').fill('Алексей · сервер');
     await page.locator('#tech-api-1-yes').click();
     await page.locator('[data-sync-action="settings"]').click();
-    await page.locator('#sync-url').fill(url);
+    await page.locator('#sync-url').fill(apiUrl+'/');
     await page.locator('#sync-token').fill(token);
     await page.locator('[data-sync-action="connect"]').click();
     await page.locator('[data-sync-action="push"]').waitFor();
@@ -48,6 +51,7 @@ function capture(ports){
     assert.equal(remote.workspace.candidates[0].profile.candidate,'Алексей · обновлён');
     const another=await browser.newContext();const second=await another.newPage();await second.goto(url);
     await second.locator('[data-sync-action="settings"]').click();
+    await second.locator('#sync-url').fill(apiUrl);
     await second.locator('#sync-token').fill(token);await second.locator('[data-sync-action="connect"]').click();
     await second.locator('[data-sync-action="pull"]').click();
     await second.waitForFunction(()=>document.querySelector('#candidate').value==='Алексей · обновлён');
@@ -72,6 +76,6 @@ function capture(ports){
     const offline=await browser.newContext();const local=await offline.newPage();await local.goto(pathToFileURL(saved).href);
     assert.equal(await local.locator('#candidate').inputValue(),'Алексей · второе устройство');
     assert.deepEqual(errors,[]);
-    console.log('PASS server connection, autosave, second device, conflict, portable HTML and mobile settings');
+    console.log('PASS API path prefix, autosave, second device, conflict, portable HTML and mobile settings');
   }finally{capture([port]);if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(dir,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1;});

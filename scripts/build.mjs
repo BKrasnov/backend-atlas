@@ -15,7 +15,14 @@ html = html.slice(0, firstCodeScript) + block + html.slice(firstCodeScript);
 // Keep the downloadable source fully standalone, with its inline sync client.
 await writeFile(source, html, 'utf8');
 // A public deployment must never publish a candidate snapshot embedded in a saved HTML.
-const publicHtml = html.replace(/<script\b[^>]*\bid=["']atlas-profile-data["'][^>]*>[\s\S]*?<\/script>\s*/gi, '');
+let publicHtml = html.replace(/<script\b[^>]*\bid=["']atlas-profile-data["'][^>]*>[\s\S]*?<\/script>\s*/gi, '');
+publicHtml = publicHtml.replace(/<meta\b[^>]*\bname=["']atlas-api-url["'][^>]*>\s*/gi, '');
+if (process.env.ATLAS_API_URL) {
+  const api = new URL(process.env.ATLAS_API_URL);
+  if (api.protocol !== 'https:' || api.username || api.password || api.search || api.hash) throw Error('ATLAS_API_URL must be an HTTPS API URL without credentials or parameters.');
+  const apiUrl = (api.origin + api.pathname.replace(/\/+$/, '')).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  publicHtml = publicHtml.replace('</head>', `<meta name="atlas-api-url" content="${apiUrl}">\n</head>`);
+}
 await mkdir(resolve(root, 'public'), {recursive:true});
 await writeFile(resolve(root, 'public/index.html'), publicHtml, 'utf8');
 await writeFile(resolve(root, 'public/.nojekyll'), '', 'utf8');

@@ -27,6 +27,8 @@ jobs:
         with:
           node-version: '24'
       - name: Build a public copy without candidate data
+        env:
+          ATLAS_API_URL: ${{ vars.ATLAS_API_URL }}
         run: node scripts/build.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
