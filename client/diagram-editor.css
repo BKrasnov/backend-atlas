@@ -30,6 +30,9 @@
 .sketch-link-hit{fill:none;stroke:transparent;stroke-width:18;cursor:pointer}.sketch-label-bg{fill:white;stroke:#e6e2f1;cursor:pointer}
 .sketch-edge-label{font:11px Inter,Arial,sans-serif;fill:#63597b;cursor:pointer}.sketch-edge-label.is-placeholder{fill:#a69db9;font-size:10px}
 .sketch-preview{stroke:#6b55ce;stroke-dasharray:6 4}
+.sketch-marquee{fill:#6b55ce18;stroke:#6b55ce;stroke-width:1.3;stroke-dasharray:5 3;vector-effect:non-scaling-stroke;pointer-events:none}
+.sketch-canvas[data-mode=select]{cursor:crosshair}
+.sketch-group-context{display:flex;gap:14px;align-items:center;justify-content:space-between;width:100%;flex-wrap:wrap}.sketch-group-context strong{color:#6b55ce;font-size:12px}
 .sketch-empty-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:30px;pointer-events:none}
 .sketch-empty-state[hidden]{display:none}.sketch-empty-state strong{font-size:15px;color:#777088;font-weight:550}.sketch-empty-state span{font-size:12px;line-height:1.8;color:#a69eb6}
 .sketch-context{border-top:1px solid #e8e5f2;min-height:80px;padding:13px 14px;background:white;display:flex;align-items:center;flex-shrink:0}

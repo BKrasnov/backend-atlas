@@ -88,6 +88,7 @@ function capture(port){
     for(let i=0;i<large.nodes.length;i++)for(let j=i+1;j<large.nodes.length;j++)assert.ok(Math.abs(large.nodes[i].x-large.nodes[j].x)>=220||Math.abs(large.nodes[i].y-large.nodes[j].y)>=58,'Adding more than nine blocks must not stack them');
     await page.getByRole('button',{name:'Показать всю схему',exact:true}).click();
     await page.locator('.sketch-canvas').scrollIntoViewIfNeeded();
+    await page.getByRole('button',{name:'Перемещение',exact:true}).click();
     const viewBefore=await page.locator('#sketch-svg').getAttribute('viewBox'),canvas=await page.locator('.sketch-canvas').boundingBox();
     await page.mouse.move(canvas.x+canvas.width-10,canvas.y+canvas.height-10);await page.mouse.down();await page.mouse.move(canvas.x+canvas.width-70,canvas.y+canvas.height-45,{steps:5});await page.mouse.up();
     assert.notEqual(await page.locator('#sketch-svg').getAttribute('viewBox'),viewBefore,'Empty canvas supports panning');
@@ -114,13 +115,82 @@ function capture(port){
     const download=await downloadEvent,svgFile=path.join(out,'diagram.svg');await download.saveAs(svgFile);
     const svg=fs.readFileSync(svgFile,'utf8');assert.ok(svg.includes('HTTPS / JSON'));assert.ok(svg.includes('Legacy API'));
     await page.locator('#sketch-editor').screenshot({path:path.join(out,'editor-desktop.png')});
+    // A separate, predictable user diagram exercises group editing without changing production data.
+    await page.evaluate(()=>{const ws=window.atlasWorkspace.read();ws.candidates[0].profile.tasks['1'].sketch={nodes:[
+      {id:'group-client',kind:'client',label:'Клиент',x:80,y:100},
+      {id:'group-api',kind:'api',label:'API',x:420,y:100},
+      {id:'group-db',kind:'database',label:'PostgreSQL',x:760,y:300}
+    ],edges:[{from:'group-client',to:'group-api',label:'HTTPS / JSON',fromPort:'right',toPort:'left'},{from:'group-api',to:'group-db',label:'SQL',fromPort:'bottom',toPort:'left'}]};window.atlasWorkspace.replace(ws);});
+    await context.grantPermissions(['clipboard-read','clipboard-write']);
+    await page.getByRole('button',{name:'Полноэкранный режим',exact:true}).click();
+    await page.waitForFunction(()=>document.fullscreenElement?.id==='sketch-editor'||document.querySelector('#sketch-editor').classList.contains('sketch-expanded'));
+    const graph=()=>page.evaluate(()=>window.atlasWorkspace.read().candidates[0].profile.tasks['1'].sketch);
+    const worldPoint=(x,y)=>page.locator('#sketch-svg').evaluate((el,p)=>{const point=new DOMPoint(p.x,p.y).matrixTransform(el.getScreenCTM());return {x:point.x,y:point.y};},{x,y});
+    const dragFrame=async(x1,y1,x2,y2)=>{const a=await worldPoint(x1,y1),b=await worldPoint(x2,y2);await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:8});};
+    await page.getByRole('button',{name:'Уменьшить масштаб',exact:true}).click();
+    const beforeGroup=await graph();
+    await dragFrame(60,80,660,180);
+    assert.equal(await page.locator('.sketch-marquee').count(),1,'Marquee is visible during selection');
+    await page.mouse.up();
+    assert.equal(await page.locator('.sketch-node.is-selected').count(),2,'Frame selects only the first two blocks');
+    const moving=await page.locator('[data-node-id="group-client"]').boundingBox();
+    await page.mouse.move(moving.x+60,moving.y+25);await page.mouse.down();await page.mouse.move(moving.x+120,moving.y+65,{steps:6});await page.mouse.up();
+    const movedGroup=await graph(),dx=movedGroup.nodes[0].x-beforeGroup.nodes[0].x,dy=movedGroup.nodes[0].y-beforeGroup.nodes[0].y;
+    assert.ok(dx!==0||dy!==0);
+    assert.equal(movedGroup.nodes[1].x-beforeGroup.nodes[1].x,dx);assert.equal(movedGroup.nodes[1].y-beforeGroup.nodes[1].y,dy);
+    assert.deepEqual(movedGroup.nodes[2],beforeGroup.nodes[2],'Outside block stays in place');
+    await page.keyboard.press('Control+z');assert.deepEqual(await graph(),beforeGroup,'One undo restores the whole move');
+    await page.keyboard.press('Control+y');assert.deepEqual(await graph(),movedGroup);
+    await dragFrame(movedGroup.nodes[0].x-20,movedGroup.nodes[0].y-20,movedGroup.nodes[1].x+240,movedGroup.nodes[1].y+80);await page.mouse.up();
+    await page.keyboard.press('Control+c');await page.keyboard.press('Control+v');
+    const pastedGroup=await graph(),copies=pastedGroup.nodes.filter(n=>!movedGroup.nodes.some(old=>old.id===n.id));
+    assert.equal(copies.length,2,'Ctrl+C/V duplicates the selected group');
+    assert.equal(new Set(pastedGroup.nodes.map(n=>n.id)).size,5);
+    assert.deepEqual(copies.map(n=>n.label),['Клиент','API']);
+    assert.equal(copies[1].x-copies[0].x,movedGroup.nodes[1].x-movedGroup.nodes[0].x);
+    assert.equal(copies[1].y-copies[0].y,movedGroup.nodes[1].y-movedGroup.nodes[0].y);
+    assert.notEqual(copies[0].x,movedGroup.nodes[0].x,'Pasted group is offset');
+    assert.deepEqual(pastedGroup.edges.at(-1),{from:copies[0].id,to:copies[1].id,label:'HTTPS / JSON',fromPort:'right',toPort:'left'});
+    assert.equal(pastedGroup.edges.length,3,'Only links inside the group are copied');
+    assert.equal(await page.locator('.sketch-node.is-selected').count(),2);
+    await page.keyboard.press('ArrowRight');
+    const nudged=await graph();for(const copy of copies)assert.equal(nudged.nodes.find(n=>n.id===copy.id).x,copy.x+20);
+    assert.deepEqual(nudged.nodes.slice(0,3),movedGroup.nodes,'Keyboard move affects only the selected group');
+    await page.keyboard.press('Control+z');assert.deepEqual(await graph(),pastedGroup);
+    await page.locator(`[data-node-id="${copies[0].id}"]`).click();await page.locator(`[data-node-id="${copies[1].id}"]`).click({modifiers:['Shift']});
+    await page.locator('.sketch-canvas').press('Delete');assert.deepEqual(await graph(),movedGroup,'Delete removes the group and its links together');
+    await page.keyboard.press('Control+z');assert.deepEqual(await graph(),pastedGroup);
+    await page.keyboard.press('Control+v');assert.equal((await graph()).nodes.length,7);
+    await page.keyboard.press('Control+z');assert.deepEqual(await graph(),pastedGroup,'One undo removes the entire pasted group');
+    await page.keyboard.press('Control+y');assert.equal((await graph()).nodes.length,7);
+    await page.keyboard.press('Control+z');
+    await page.locator('[data-node-id="group-client"]').click();
+    await page.locator('[data-node-id="group-api"]').click({modifiers:['Shift']});
+    assert.equal(await page.locator('.sketch-node.is-selected').count(),2,'Shift click adds a block');
+    await page.locator('[data-node-id="group-api"]').click({modifiers:['Shift']});
+    assert.equal(await page.locator('.sketch-node.is-selected').count(),1,'Shift click removes a block');
+    const inputBeforePaste=await graph();
+    await page.getByLabel('Название блока',{exact:true}).fill('Текст');
+    await page.getByLabel('Название блока',{exact:true}).press('Control+a');await page.keyboard.press('Control+c');await page.keyboard.press('Control+v');
+    assert.equal(await page.getByLabel('Название блока',{exact:true}).inputValue(),'Текст');assert.deepEqual(await graph(),inputBeforePaste,'Text clipboard does not change graph');
+    await page.getByRole('button',{name:'Выбор',exact:true}).click();
+    const pasteText=async text=>page.locator('.sketch-canvas').evaluate((el,text)=>{const data=new DataTransfer();data.setData('text/plain',text);el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));},text);
+    await pasteText('plain text');await pasteText(JSON.stringify({format:'backend-atlas-diagram',version:1,nodes:[{id:'bad',label:'bad',x:'invalid',y:0}],edges:[]}));
+    await pasteText(JSON.stringify({format:'backend-atlas-diagram',version:1,nodes:Array.from({length:30},(_,i)=>({id:'limit-'+i,kind:'api',label:'API',x:i*40,y:60})),edges:[]}));
+    assert.deepEqual(await graph(),inputBeforePaste,'Invalid clipboard and exceeding limits leave the entire graph unchanged');
+    await dragFrame(movedGroup.nodes[0].x-20,movedGroup.nodes[0].y-20,movedGroup.nodes[1].x+300,movedGroup.nodes[1].y+150);await page.mouse.up();
+    await page.locator('#sketch-editor').screenshot({path:path.join(out,'group-selection.png')});
+    await page.getByRole('button',{name:'Полноэкранный режим',exact:true}).click();
+    await page.getByText('Синхронизировано',{exact:true}).waitFor();
+    const finalGroup=await graph();await page.reload();await page.getByText('Синхронизировано',{exact:true}).waitFor();
+    assert.deepEqual(await graph(),finalGroup,'Copied blocks and their links survive reload and API sync');
     await page.setViewportSize({width:390,height:844});
     await page.getByRole('button',{name:'Показать всю схему',exact:true}).click();
     await page.locator('#sketch-editor').scrollIntoViewIfNeeded();
     await page.locator('#sketch-editor').screenshot({path:path.join(out,'editor-mobile.png')});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
     assert.deepEqual(errors,[]);
-    console.log('PASS toolbar undo/redo, keyboard shortcuts across focus and Russian layout, text undo, F/Escape, native/fallback fullscreen, sticky controls, legacy data, links, persistence, SVG and mobile width');
+    console.log('PASS marquee, group movement/history, Ctrl+C/V with internal links, text clipboard, Shift selection, paste validation/limits, reload; toolbar shortcuts, fullscreen, legacy data, SVG and mobile width');
   } catch(error){if(page)await page.screenshot({path:path.join(out,'failure.png'),fullPage:false});throw error;}
   finally {capture(port);if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(dir,{recursive:true,force:true});}
 })().catch(error=>{console.error(error);process.exitCode=1;});
