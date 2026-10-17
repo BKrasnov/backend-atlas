@@ -6989,21 +6989,31 @@
 }</script>
 <!-- atlas-server-sync:start -->
 <script>
-/* Optional server sync. Credentials live only in this tab's memory. */
+/* Optional server sync. Remembered access stays in this browser, never in exports. */
 (() => {
   'use strict';
   document.addEventListener('DOMContentLoaded', () => {
     const atlas = window.atlasWorkspace;
     if (!atlas) return;
     const CONFIG = 'backend-atlas-server-url';
+    const CONNECTION = 'backend-atlas-server-connection';
     const BACKUP = 'backend-atlas-before-server-import';
     let endpoint = '', token = '', revision = null, remote = null;
     let connected = false, paused = false, applying = false, busy = false;
-    let generation = 0, changed = 0, uploaded = 0, timer;
+    let generation = 0, changed = 0, uploaded = 0, timer, retryTimer, retries = 0;
+    let remembered = false, storageWarning = false;
     let status = 'Локальный режим';
     try { endpoint = localStorage.getItem(CONFIG) || ''; } catch {}
     if (!endpoint) endpoint = document.querySelector('meta[name="atlas-api-url"]')?.content || '';
     if (!endpoint && /^https?:$/.test(location.protocol) && !location.hostname.endsWith('.github.io')) endpoint = location.origin;
+    try {
+      const saved = JSON.parse(localStorage.getItem(CONNECTION));
+      if (saved && typeof saved.token === 'string' && saved.token.length >= 32 && saved.token.length <= 512 && !/\s/.test(saved.token) && Number.isSafeInteger(saved.revision) && saved.revision >= 0) {
+        endpoint = normalizeUrl(saved.endpoint); token = saved.token; revision = saved.revision;
+        remembered = connected = paused = true;
+        changed = saved.pending ? 1 : 0;
+      }
+    } catch {}
 
     const button = document.createElement('button');
     button.className = 'side-help';
@@ -7027,7 +7037,27 @@
       return url.origin + url.pathname.replace(/\/+$/, '');
     }
     function settings() {
-      openDialog('Сервер и синхронизация', `<p class="x-small">Подключите собственный сервер, чтобы продолжать работу с одним профилем на разных устройствах. Локальная копия сохраняется в браузере.</p><div class="x-form" style="margin-top:16px"><label class="x-field">Адрес сервера<input id="sync-url" type="url" value="${esc(endpoint)}" placeholder="https://atlas.example.com" autocomplete="url"></label><label class="x-field">Ключ доступа<input id="sync-token" type="password" autocomplete="off" placeholder="${token ? 'Ключ уже введён в этой вкладке' : 'Ключ из настроек вашего сервера'}"></label></div><div class="x-note">Ключ действует только до закрытия или перезагрузки вкладки. Он не включается в HTML, JSON или настройки браузера.</div><p id="sync-feedback" class="x-small" role="status">${esc(status)}</p><div class="x-row" style="margin-top:15px"><button class="btn btn-primary" data-sync-action="connect">Проверить подключение</button>${connected || token ? '<button class="btn" data-sync-action="disconnect">Отключить</button>' : ''}<button class="btn" data-sync-action="backup">Скачать локальную копию · JSON</button>${hasBackup() ? '<button class="btn" data-sync-action="download-backup">Копия до загрузки с сервера</button>' : ''}</div><p class="x-small" style="margin-top:15px">На GitHub Pages укажите HTTPS-адрес API на VPS. Сам GitHub Pages хранит только страницу атласа.</p>`, '<button class="btn" data-action="close-dialog">Закрыть</button>');
+      openDialog('Сервер и синхронизация', `<p class="x-small">Подключите собственный сервер, чтобы продолжать работу с одним профилем на разных устройствах. Локальная копия сохраняется в браузере.</p><div class="x-form" style="margin-top:16px"><label class="x-field">Адрес сервера<input id="sync-url" type="url" value="${esc(endpoint)}" placeholder="https://atlas.example.com" autocomplete="url"></label><label class="x-field">Ключ доступа<input id="sync-token" type="password" autocomplete="off" placeholder="${token ? (remembered ? 'Ключ сохранён в этом браузере' : 'Ключ уже введён') : 'Ключ из настроек вашего сервера'}"></label></div><div class="x-note">Подключение запоминается в этом браузере и восстанавливается после перезагрузки. Ключ не включается в HTML и JSON-экспорты. Кнопка «Отключить» удаляет сохранённый ключ.</div><p id="sync-feedback" class="x-small" role="status">${esc(status)}</p><div class="x-row" style="margin-top:15px"><button class="btn btn-primary" data-sync-action="connect">Проверить подключение</button>${connected || token ? '<button class="btn" data-sync-action="disconnect">Отключить</button>' : ''}<button class="btn" data-sync-action="backup">Скачать локальную копию · JSON</button>${hasBackup() ? '<button class="btn" data-sync-action="download-backup">Копия до загрузки с сервера</button>' : ''}</div><p class="x-small" style="margin-top:15px">На GitHub Pages укажите HTTPS-адрес API на VPS. Сам GitHub Pages хранит только страницу атласа.</p>`, '<button class="btn" data-action="close-dialog">Закрыть</button>');
+    }
+    function rememberConnection() {
+      if (!connected || !token || revision === null) return;
+      try {
+        localStorage.setItem(CONNECTION, JSON.stringify({endpoint, token, revision, pending:changed !== uploaded}));
+        localStorage.setItem(CONFIG, endpoint); remembered = true;
+      } catch {
+        if (!storageWarning) notify('Браузер не смог запомнить подключение. Освободите место в хранилище; до закрытия вкладки синхронизация продолжит работать.');
+        storageWarning = true;
+      }
+    }
+    function forgetConnection() {
+      localStorage.removeItem(CONNECTION); remembered = false;
+    }
+    function applyRemote(workspace) {
+      try { localStorage.setItem(BACKUP, JSON.stringify(atlas.read())); }
+      catch { throw Error('Не удалось создать локальную резервную копию. Освободите место в хранилище браузера перед загрузкой.'); }
+      applying = true;
+      try { atlas.replace(workspace); }
+      finally { applying = false; }
     }
     function hasBackup() { try { return !!localStorage.getItem(BACKUP); } catch { return false; } }
     function backup(value = atlas.read()) {
@@ -7062,7 +7092,7 @@
       const nextUrl = normalizeUrl(urlField?.value || endpoint);
       const nextToken = tokenField?.value.trim() || token;
       if (!nextToken) throw Error('Введите ключ доступа.');
-      clearTimeout(timer); connected = false; paused = false;
+      forgetConnection(); clearTimeout(timer); clearTimeout(retryTimer); connected = false; paused = false;
       endpoint = nextUrl; token = nextToken;
       if (tokenField) tokenField.value = '';
       const attempt = ++generation;
@@ -7070,10 +7100,34 @@
       try {
         const result = await request('GET');
         if (attempt !== generation) return;
-        remote = result; revision = result.revision;
+        remote = result; revision = result.revision; retries = 0;
         try { localStorage.setItem(CONFIG, endpoint); } catch {}
         setStatus('Выберите источник данных'); choose();
       } finally { busy = false; }
+    }
+    async function resume() {
+      if (busy || !connected || !token) return;
+      clearTimeout(retryTimer);
+      const attempt = generation;
+      busy = true; paused = true; setStatus('Подключение к серверу…');
+      try {
+        const result = await request('GET');
+        if (attempt !== generation) return;
+        remote = result;
+        if (changed !== uploaded) {
+          if (result.revision !== revision) {
+            const error = Error('На сервере есть другая версия. Локальные правки сохранены. Откройте синхронизацию и выберите источник данных.');
+            error.status = 409; throw error;
+          }
+        } else {
+          if (result.workspace) applyRemote(result.workspace);
+          else ++changed;
+          revision = result.revision;
+        }
+        paused = false; retries = 0; rememberConnection();
+        setStatus('Синхронизировано');
+      } finally { busy = false; }
+      schedule();
     }
     function schedule() {
       clearTimeout(timer);
@@ -7091,7 +7145,8 @@
       try {
         const result = await request('PUT', snapshot, revision);
         if (attempt !== generation) return;
-        revision = result.revision; uploaded = version; connected = true; paused = false;
+        revision = result.revision; uploaded = version; connected = true; paused = false; retries = 0;
+        clearTimeout(retryTimer); rememberConnection();
         if (explicit) closeDialog();
         setStatus('Синхронизировано');
       } finally { busy = false; }
@@ -7099,26 +7154,27 @@
     }
     function pull() {
       if (busy || !remote?.workspace) return;
-      try { localStorage.setItem(BACKUP, JSON.stringify(atlas.read())); }
-      catch { throw Error('Не удалось создать локальную резервную копию. Освободите место в хранилище браузера перед загрузкой.'); }
-      applying = true;
-      try { atlas.replace(remote.workspace); }
-      finally { applying = false; }
+      applyRemote(remote.workspace);
       changed = uploaded = 0; connected = true; paused = false;
-      revision = remote.revision; closeDialog(); setStatus('Синхронизировано');
+      revision = remote.revision; retries = 0; rememberConnection(); closeDialog(); setStatus('Синхронизировано');
     }
     function disconnect() {
-      ++generation; clearTimeout(timer); connected = false; paused = false; token = ''; remote = null; revision = null;
+      forgetConnection(); ++generation; clearTimeout(timer); clearTimeout(retryTimer); connected = false; paused = false; token = ''; remote = null; revision = null;
       setStatus('Локальный режим'); closeDialog();
     }
     function report(error) {
       paused = true;
-      if (error.status === 401) { token = ''; connected = false; }
+      clearTimeout(retryTimer);
+      if (error.status === 401) { forgetConnection(); token = ''; connected = false; }
       setStatus(error.status === 409 ? 'Конфликт версий — откройте синхронизацию' : 'Синхронизация приостановлена');
-      notify(error.message);
+      if (!retries) notify(error.message);
       const el = document.querySelector('#sync-feedback'); if (el) el.textContent = error.message;
+      if (connected && (!error.status || error.status >= 500) && error.retryable !== false) {
+        const delay = Math.min(30000, 2000 * 2 ** Math.min(retries++, 4));
+        retryTimer = setTimeout(() => resume().catch(report), delay);
+      }
     }
-    document.addEventListener('atlas:change', () => { if (applying) return; ++changed; schedule(); });
+    document.addEventListener('atlas:change', () => { if (applying) return; ++changed; rememberConnection(); schedule(); });
     document.addEventListener('click', event => {
       const action = event.target.closest('[data-sync-action]')?.dataset.syncAction;
       if (!action) return;
@@ -7133,8 +7189,9 @@
         if (action === 'download-backup') { const raw = localStorage.getItem(BACKUP); if (raw) backup(JSON.parse(raw)); }
       }).catch(report);
     });
-    window.addEventListener('online', () => { if (connected && paused && !status.startsWith('Конфликт')) { paused = false; schedule(); } });
+    window.addEventListener('online', () => { if (connected && paused && !status.startsWith('Конфликт')) resume().catch(report); });
     window.addEventListener('beforeunload', event => { if (connected && changed !== uploaded) { event.preventDefault(); event.returnValue = ''; } });
+    if (remembered) resume().catch(report);
   }, {once:true});
 })();
 
