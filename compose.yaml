@@ -1,0 +1,43 @@
+name: backend-atlas
+services:
+  atlas:
+    build: .
+    restart: unless-stopped
+    environment:
+      ATLAS_TOKEN: ${ATLAS_TOKEN:?Run scripts/deploy-vps.sh to create .env}
+      PUBLIC_ORIGIN: https://${ATLAS_DOMAIN:?Set ATLAS_DOMAIN in .env}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    volumes:
+      - atlas-data:/data
+    expose:
+      - "3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 15s
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      ATLAS_DOMAIN: ${ATLAS_DOMAIN:?Set ATLAS_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      atlas:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  atlas-data:
+  caddy-data:
+  caddy-config:

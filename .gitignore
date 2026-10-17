@@ -1,0 +1,11 @@
+node_modules/
+public/
+data/
+.env
+.env.*
+!.env.example
+output/
+*.log
+*.tmp
+*.zip
+__pycache__/

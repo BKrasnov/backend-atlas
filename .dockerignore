@@ -1,0 +1,9 @@
+*
+!Dockerfile
+!backend-atlas-single-candidate.html
+!client/
+!client/**
+!server/
+!server/**
+!scripts/
+!scripts/build.mjs

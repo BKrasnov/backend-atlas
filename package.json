@@ -1,0 +1,16 @@
+{
+  "name": "backend-atlas",
+  "version": "5.2.0",
+  "private": true,
+  "description": "Single-candidate Backend Atlas with an optional private sync server",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node --env-file-if-exists=.env server/index.mjs",
+    "setup": "node scripts/setup.mjs",
+    "package": "node scripts/package.mjs",
+    "test": "node --test tests/server.test.mjs",
+    "test:browser": "node tests/browser.cjs",
+    "deploy:pages": "node scripts/deploy-pages.mjs"
+  }
+}
