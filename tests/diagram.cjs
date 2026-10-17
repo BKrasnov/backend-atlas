@@ -11,6 +11,7 @@ fs.mkdirSync(out,{recursive:true});
 function capture(port){
   const script=`$all=Get-CimInstance Win32_Process; $ids=@(${process.pid}); do { $next=@($all | Where-Object { $_.ParentProcessId -in $ids -and $_.ProcessId -notin $ids } | Select-Object -ExpandProperty ProcessId); $ids+=$next } while($next.Count); $all | Where-Object { $_.ProcessId -in $ids } | Select-Object ProcessId,ParentProcessId,Name,CommandLine,CreationDate | ConvertTo-Json -Depth 3`;
   fs.writeFileSync(path.join(out,'processes.json'),execFileSync('powershell.exe',['-NoProfile','-Command',script],{encoding:'utf8'}));
+  fs.copyFileSync(path.join(out,'processes.json'),path.join(out,`processes-${process.pid}.json`));
   fs.writeFileSync(path.join(out,'ports.json'),JSON.stringify([port]));
 }
 (async()=>{
@@ -35,6 +36,21 @@ function capture(port){
     await page.locator('[data-node-id="legacy-api"]').waitFor();
     assert.equal(await page.locator('.sketch-edge-label').filter({hasText:'SQL legacy'}).count(),1);
     await page.getByRole('button',{name:'Добавить API',exact:true}).click();
+    await page.keyboard.press('Control+z');
+    assert.equal(await page.locator('[data-node-kind="api"]').count(),0,'Undo works after palette focus');
+    await page.keyboard.press('Control+y');
+    assert.equal(await page.locator('[data-node-kind="api"]').count(),1);
+    await page.getByRole('button',{name:'Отменить изменение',exact:true}).click();
+    await page.keyboard.press('Control+Shift+z');
+    assert.equal(await page.locator('[data-node-kind="api"]').count(),1,'Redo works after toolbar focus');
+    await page.getByRole('button',{name:'Выбор',exact:true}).dispatchEvent('keydown',{key:'я',code:'KeyZ',ctrlKey:true,bubbles:true});
+    assert.equal(await page.locator('[data-node-kind="api"]').count(),0,'Russian keyboard layout uses physical Z');
+    await page.getByRole('button',{name:'Повторить изменение',exact:true}).click();
+    await page.locator('[data-node-kind="api"]').click();
+    const nameInput=page.getByLabel('Название блока',{exact:true});
+    await nameInput.click();await nameInput.press('End');await nameInput.pressSequentially(' test');await page.keyboard.press('Control+z');
+    assert.equal(await page.locator('[data-node-kind="api"]').count(),1,'Text undo does not undo the graph');
+    await nameInput.fill('API');
     await page.getByRole('button',{name:'Добавить базу данных',exact:true}).click();
     assert.equal(await page.locator('[data-node-kind="api"]').count(),1);
     assert.equal(await page.locator('[data-node-kind="database"]').count(),1);
@@ -75,9 +91,24 @@ function capture(port){
     const viewBefore=await page.locator('#sketch-svg').getAttribute('viewBox'),canvas=await page.locator('.sketch-canvas').boundingBox();
     await page.mouse.move(canvas.x+canvas.width-10,canvas.y+canvas.height-10);await page.mouse.down();await page.mouse.move(canvas.x+canvas.width-70,canvas.y+canvas.height-45,{steps:5});await page.mouse.up();
     assert.notEqual(await page.locator('#sketch-svg').getAttribute('viewBox'),viewBefore,'Empty canvas supports panning');
+    await page.getByRole('button',{name:'Выбор',exact:true}).focus();await page.keyboard.press('f');
+    await page.waitForFunction(()=>document.fullscreenElement?.id==='sketch-editor'||document.querySelector('#sketch-editor').classList.contains('sketch-expanded'));
+    assert.ok((await page.getByRole('button',{name:'Полноэкранный режим',exact:true}).innerText()).includes('Выйти'));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(()=>!document.fullscreenElement&&!document.querySelector('#sketch-editor').classList.contains('sketch-expanded'));
     await page.getByRole('button',{name:'Полноэкранный режим',exact:true}).click();
     await page.waitForFunction(()=>document.fullscreenElement?.id==='sketch-editor'||document.querySelector('#sketch-editor').classList.contains('sketch-expanded'));
+    assert.equal(await page.locator('.sketch-canvas').evaluate(el=>el.getBoundingClientRect().bottom<=innerHeight),true);
     await page.getByRole('button',{name:'Полноэкранный режим',exact:true}).click();
+    await page.waitForFunction(()=>!document.fullscreenElement&&!document.querySelector('#sketch-editor').classList.contains('sketch-expanded'));
+    await page.evaluate(()=>{document.querySelector('#sketch-editor').requestFullscreen=()=>Promise.reject(new DOMException('Unavailable','NotAllowedError'));});
+    await page.getByRole('button',{name:'Полноэкранный режим',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('#sketch-editor').classList.contains('sketch-expanded'));
+    await page.getByRole('button',{name:'Выбор',exact:true}).focus();await page.keyboard.press('Escape');
+    await page.waitForFunction(()=>!document.querySelector('#sketch-editor').classList.contains('sketch-expanded'));
+    await page.evaluate(()=>{const editor=document.querySelector('#sketch-editor');window.scrollTo(0,editor.getBoundingClientRect().top+scrollY+180);});
+    const toolbarBox=await page.getByRole('toolbar',{name:'Управление схемой',exact:true}).boundingBox();
+    assert.ok(toolbarBox.y>=0&&toolbarBox.y+toolbarBox.height<1100,'Toolbar stays available while scrolling the canvas');
     await page.getByRole('button',{name:'Показать всю схему',exact:true}).click();
     const downloadEvent=page.waitForEvent('download');await page.getByRole('button',{name:'SVG',exact:true}).click();
     const download=await downloadEvent,svgFile=path.join(out,'diagram.svg');await download.saveAs(svgFile);
@@ -89,7 +120,7 @@ function capture(port){
     await page.locator('#sketch-editor').screenshot({path:path.join(out,'editor-mobile.png')});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
     assert.deepEqual(errors,[]);
-    console.log('PASS legacy data, palette click/drop, dragged connection, visible label, zoomed drag, undo, 11 non-overlapping nodes, pan, fullscreen, server persistence, reload, SVG and mobile width');
+    console.log('PASS toolbar undo/redo, keyboard shortcuts across focus and Russian layout, text undo, F/Escape, native/fallback fullscreen, sticky controls, legacy data, links, persistence, SVG and mobile width');
   } catch(error){if(page)await page.screenshot({path:path.join(out,'failure.png'),fullPage:false});throw error;}
   finally {capture(port);if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(dir,{recursive:true,force:true});}
 })().catch(error=>{console.error(error);process.exitCode=1;});

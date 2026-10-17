@@ -1,10 +1,15 @@
-.sketch-editor{border:1px solid var(--line,#e3e6ef);border-radius:12px;overflow:hidden;background:#fff;min-width:0;margin:16px 0 6px}
-.sketch-editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px;background:#fafaff;border-bottom:1px solid #e7e5f1}
+.sketch-editor{border:1px solid var(--line,#e3e6ef);border-radius:12px;overflow:clip;background:#fff;min-width:0;margin:16px 0 6px}
+.sketch-editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px;background:#fafaff;border-bottom:1px solid #e7e5f1;position:sticky;top:154px;z-index:8;flex-shrink:0;box-shadow:0 3px 10px #302b4605}
 .sketch-tools{display:flex;align-items:center;gap:4px;padding-right:8px;border-right:1px solid #e5e2ef}
 .sketch-tools:last-child{border:0;padding-right:0}.sketch-view-tools{margin-left:auto;flex-wrap:wrap}
 .sketch-editor .btn{font-size:11px;padding:7px 10px;min-height:34px;white-space:nowrap}
 .sketch-editor .btn[aria-pressed=true]{background:var(--accent-soft,#f0edff);color:var(--accent,#6b55ce);border-color:#d4caf4}
 .sketch-editor .btn:disabled{opacity:.4;cursor:default}
+.sketch-editor .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.sketch-editor .btn kbd{font:9px ui-monospace,Consolas,monospace;padding:2px 4px;border:1px solid #e5e1f0;border-radius:4px;background:#fff;color:#9c94ad;line-height:1.2}
+.sketch-editor .sketch-fullscreen-toggle{background:var(--accent,#6b55ce);border-color:var(--accent,#6b55ce);color:white}
+.sketch-editor .sketch-fullscreen-toggle[aria-pressed=true]{background:#4f3f9e;border-color:#4f3f9e;color:white}
+.sketch-editor .sketch-fullscreen-toggle kbd{background:#ffffff18;border-color:#ffffff40;color:#fff}
 .sketch-editor [data-editor-zoom]{font-size:11px;color:#7e7890;min-width:39px;text-align:center;font-variant-numeric:tabular-nums}
 .sketch-editor-layout{display:grid;grid-template-columns:156px minmax(0,1fr);min-width:0}
 .sketch-palette{padding:16px 10px;background:#fdfdff;border-right:1px solid #e9e6f2}
@@ -31,6 +36,7 @@
 .sketch-context-hint{font-size:10px;color:#9d96ac;line-height:1.8}.sketch-edit-form{display:flex;align-items:flex-end;gap:8px;width:100%;flex-wrap:wrap}.sketch-edit-form .x-field{flex:1;min-width:130px}.sketch-edit-form input{width:100%;font-size:12px}
 .sketch-editor-status{border-top:1px solid #e9e6f2;margin:0!important;padding:10px 14px;font-size:10px!important;color:#9a91ab!important;line-height:1.6!important}
 .sketch-editor:fullscreen,.sketch-editor.sketch-expanded{background:white;width:100%;height:100%;border:0;border-radius:0;margin:0;display:flex;flex-direction:column;padding:16px}
+.sketch-editor:fullscreen .sketch-editor-toolbar,.sketch-expanded .sketch-editor-toolbar{top:0}
 .sketch-editor.sketch-expanded{position:fixed;inset:0;z-index:1000}.sketch-editor:fullscreen .sketch-editor-layout,.sketch-expanded .sketch-editor-layout{flex:1;min-height:0}.sketch-editor:fullscreen .sketch-stage,.sketch-expanded .sketch-stage{height:100%;min-height:0}.sketch-editor:fullscreen .sketch-canvas,.sketch-expanded .sketch-canvas{height:0;flex:1 1 0;min-height:0}
 @media(max-width:1200px){.sketch-editor-layout{grid-template-columns:130px minmax(0,1fr)}.sketch-view-tools{margin-left:0}.sketch-palette-item small{display:none}.sketch-canvas{height:430px}}
 @media(max-width:700px){.sketch-editor-layout{grid-template-columns:minmax(0,1fr)}.sketch-palette{border-right:0;border-bottom:1px solid #e9e6f2;display:flex;gap:6px;overflow-x:auto;padding:10px}.sketch-palette>strong,.sketch-palette>p{display:none}.sketch-palette-item{width:auto;flex:0 0 auto;min-height:36px;margin:0;padding:8px 10px}.sketch-palette-item span{font-size:10px}.sketch-canvas{height:360px}.sketch-editor-toolbar{gap:6px;padding:8px}.sketch-tools{gap:3px;padding-right:5px}.sketch-editor .btn{font-size:10px;padding:7px 8px;min-height:36px}.sketch-edit-form input{font-size:16px}.sketch-context{padding:12px}.sketch-context-hint{font-size:10px}.sketch-editor:fullscreen .sketch-editor-layout,.sketch-expanded .sketch-editor-layout{display:flex;flex-direction:column}.sketch-editor:fullscreen .sketch-stage,.sketch-expanded .sketch-stage{flex:1;min-height:0}}
