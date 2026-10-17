@@ -6,6 +6,106 @@
 <meta name="color-scheme" content="light">
 <meta name="description" content="Backend Atlas: личный атлас одного кандидата. Технологии, учебный план, вопросы, интервью и 31 практическая задача. Сохранение в автономный HTML вместе с данными.">
 <title>Backend Atlas — один кандидат</title>
+<!-- atlas-diagram-editor:start -->
+<script>
+/* Architecture editor: the stored graph is separate from its temporary camera and selection. */
+(() => {
+  'use strict';
+  const TYPES = [
+    {id:'client',name:'Клиент',add:'Добавить клиент',hint:'Браузер или приложение',color:'#5366b7'},
+    {id:'api',name:'API',add:'Добавить API',hint:'Точка входа в систему',color:'#6b55ce'},
+    {id:'service',name:'Сервис',add:'Добавить сервис',hint:'Бизнес-логика',color:'#6679a1'},
+    {id:'database',name:'База данных',add:'Добавить базу данных',hint:'Постоянные данные',color:'#32887f'},
+    {id:'cache',name:'Кеш',add:'Добавить кеш',hint:'Быстрый доступ',color:'#a57c36'},
+    {id:'queue',name:'Очередь',add:'Добавить очередь',hint:'События и сообщения',color:'#ad6c50'},
+    {id:'worker',name:'Воркер',add:'Добавить воркер',hint:'Фоновая обработка',color:'#8d63a8'},
+    {id:'external',name:'Внешний сервис',add:'Добавить внешний сервис',hint:'Сторонняя система',color:'#608598'},
+    {id:'component',name:'Свой блок',add:'Добавить свой блок',hint:'Любой компонент',color:'#7e8193'}
+  ];
+  const type = kind => TYPES.find(t=>t.id===kind)||TYPES.at(-1);
+  const clamp = (n,min,max) => Math.max(min,Math.min(max,n));
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const esc = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const ports = {left:[0,29,-1,0],right:[220,29,1,0],top:[110,0,0,-1],bottom:[110,58,0,1]};
+  function geometry(a,b,edge={}) {
+    const dx=b.x-a.x,dy=b.y-a.y,horizontal=Math.abs(dx)>=Math.abs(dy)*1.6;
+    const from=ports[edge.fromPort]||ports[horizontal?(dx>=0?'right':'left'):(dy>=0?'bottom':'top')];
+    const to=ports[edge.toPort]||ports[horizontal?(dx>=0?'left':'right'):(dy>=0?'top':'bottom')];
+    const x1=a.x+from[0],y1=a.y+from[1],x2=b.x+to[0],y2=b.y+to[1];
+    const distance=Math.max(44,Math.min(240,Math.hypot(x2-x1,y2-y1)*.42));
+    const cx1=x1+from[2]*distance,cy1=y1+from[3]*distance,cx2=x2+to[2]*distance,cy2=y2+to[3]*distance;
+    return {path:`M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`,mx:(x1+3*cx1+3*cx2+x2)/8,my:(y1+3*cy1+3*cy2+y2)/8,xs:[x1,cx1,cx2,x2],ys:[y1,cy1,cy2,y2]};
+  }
+  function bounds(d) {
+    const curves=d.edges.map(e=>{const a=d.nodes.find(n=>n.id===e.from),b=d.nodes.find(n=>n.id===e.to);return a&&b?geometry(a,b,e):{xs:[],ys:[]};});
+    const xs=[...d.nodes.flatMap(n=>[n.x,n.x+220]),...curves.flatMap(g=>g.xs)],ys=[...d.nodes.flatMap(n=>[n.y,n.y+58]),...curves.flatMap(g=>g.ys)];
+    const x=Math.min(0,...xs)-32,y=Math.min(0,...ys)-32;
+    return {x,y,width:Math.max(360,...xs)+32-x,height:Math.max(200,...ys)+32-y};
+  }
+  const svgStyles = '.sketch-node-body{fill:white;stroke:#d8dce9;stroke-width:1.3}.sketch-node-title{font:600 12px Arial,sans-serif;fill:#33384e}.sketch-node-kind{font:10px Arial,sans-serif}.sketch-link{fill:none;stroke:#9b93bc;stroke-width:1.6}.sketch-label-bg{fill:#fff;stroke:#e6e2f1}.sketch-edge-label{font:11px Arial,sans-serif;fill:#63597b}';
+  function svg(d,id,{interactive=false,node=null,edge=null}={}) {
+    const marker='sketch-arrow-'+id;
+    return `<defs><marker id="${marker}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#9b93bc"/></marker></defs>`+
+      d.edges.map((e,i)=>{
+        const a=d.nodes.find(n=>n.id===e.from),b=d.nodes.find(n=>n.id===e.to);if(!a||!b)return '';
+        const g=geometry(a,b,e),label=e.label||(interactive?'Подпись связи':''),text=label.length>36?label.slice(0,35)+'…':label,w=clamp(text.length*6.6+20,46,270);
+        return `<g ${interactive?`data-edge-index="${i}"`:''}><path class="sketch-link ${edge===i?'is-selected':''}" d="${g.path}" marker-end="url(#${marker})"/>${interactive?`<path class="sketch-link-hit" d="${g.path}"/>`:''}${label?`<rect class="sketch-label-bg" x="${g.mx-w/2}" y="${g.my-12}" width="${w}" height="24" rx="6"/><text class="sketch-edge-label ${!e.label?'is-placeholder':''}" x="${g.mx}" y="${g.my+4}" text-anchor="middle">${esc(text)}</text>`:''}<title>${esc(e.label||'Связь без подписи')}</title></g>`;
+      }).join('')+d.nodes.map(n=>{
+        const meta=type(n.kind),text=n.label.length>28?n.label.slice(0,27)+'…':n.label;
+        return `<g class="sketch-node ${node===n.id?'is-selected':''}" transform="translate(${n.x},${n.y})" ${interactive?`data-node-id="${esc(n.id)}" data-node-kind="${meta.id}" tabindex="0" role="button" aria-label="Блок ${esc(n.label)}"`:''}><rect class="sketch-node-body" width="220" height="58" rx="10"/><path d="M 4 12 L 4 46" style="stroke:${meta.color};stroke-width:4;stroke-linecap:round"/><text class="sketch-node-kind" x="16" y="18" style="fill:${meta.color}">${esc(meta.name)}</text><text class="sketch-node-title" x="16" y="39">${esc(text)}</text><title>${esc(n.label)}</title>${interactive?Object.entries(ports).map(([side,p])=>`<circle class="sketch-port" data-port="${side}" cx="${p[0]}" cy="${p[1]}" r="6" tabindex="0" role="button" aria-label="${esc(n.label)}: связь ${side}"/>`).join(''):''}</g>`;
+      }).join('');
+  }
+  let serial=0;
+  class Editor {
+    constructor(host,{read,write,notify=()=>{}}) {
+      this.host=host;this.write=write;this.notify=notify;this.diagram=clone(read());this.id=++serial;
+      this.selected={node:null,edge:null};this.history=[];this.future=[];this.mode='select';this.connectFrom=null;this.drag=null;
+      this.camera={x:0,y:0,zoom:1};this.events=new AbortController();
+      const button=(action,label,title=label)=>`<button class="btn" type="button" data-editor-action="${action}" aria-label="${title}">${label}</button>`;
+      host.className='sketch-editor';
+      host.innerHTML=`<div class="sketch-editor-toolbar" role="toolbar" aria-label="Управление схемой"><div class="sketch-tools">${button('select','Выбор')}${button('pan','Перемещение')}${button('connect','Связать')}</div><div class="sketch-tools">${button('undo','Отменить','Отменить изменение')}${button('redo','Повторить','Повторить изменение')}</div><div class="sketch-tools sketch-view-tools">${button('zoom-out','−','Уменьшить масштаб')}<output data-editor-zoom aria-label="Масштаб">100%</output>${button('zoom-in','+','Увеличить масштаб')}${button('fit','Вместить','Показать всю схему')}${button('fullscreen','На весь экран','Полноэкранный режим')}</div></div><div class="sketch-editor-layout"><aside class="sketch-palette" aria-label="Компоненты архитектуры"><strong>КОМПОНЕНТЫ</strong><p>Перетащите на поле<br>или нажмите</p>${TYPES.map(t=>`<button type="button" class="sketch-palette-item" draggable="true" data-component="${t.id}" aria-label="${t.add}" style="--component-color:${t.color}"><span>${t.name}</span><small>${t.hint}</small></button>`).join('')}</aside><div class="sketch-stage"><div id="sketch-host" class="sketch-canvas" tabindex="0" aria-label="Поле схемы"><svg id="sketch-svg" class="sketch-svg" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Редактор схемы архитектуры"></svg><div class="sketch-empty-state"><strong>Из чего состоит ваша система?</strong><span>Добавьте компонент из палитры.<br>Потяните за точку блока, чтобы создать связь.</span></div></div><div class="sketch-context" aria-label="Выбранный элемент"></div></div></div><p class="sketch-editor-status" id="sketch-status" role="status">Черновик сохраняется автоматически. Перетаскивайте свободное поле для перемещения.</p>`;
+      this.canvas=host.querySelector('.sketch-canvas');this.svg=host.querySelector('svg');
+      const on=(el,event,fn,options={})=>el.addEventListener(event,fn,{...options,signal:this.events.signal});
+      on(host,'click',e=>{const component=e.target.closest('[data-component]');if(component){this.add(component.dataset.component);return;}const action=e.target.closest('[data-editor-action]');if(action)this.action(action.dataset.editorAction);});
+      on(host,'submit',e=>{if(e.target.matches('.sketch-edit-form')){e.preventDefault();this.rename(new FormData(e.target).get('label'));}});
+      on(host,'dragstart',e=>{const item=e.target.closest('[data-component]');if(item){e.dataTransfer.setData('application/x-atlas-component',item.dataset.component);e.dataTransfer.effectAllowed='copy';}});
+      on(this.canvas,'dragover',e=>{if([...e.dataTransfer.types].includes('application/x-atlas-component')){e.preventDefault();e.dataTransfer.dropEffect='copy';}});
+      on(this.canvas,'drop',e=>{const kind=e.dataTransfer.getData('application/x-atlas-component');if(!TYPES.some(t=>t.id===kind))return;e.preventDefault();const p=this.point(e);this.add(kind,{x:p.x-110,y:p.y-29});});
+      on(this.canvas,'pointerdown',e=>this.pointerDown(e));on(this.canvas,'pointermove',e=>this.pointerMove(e));
+      on(this.canvas,'pointerup',e=>this.pointerUp(e));on(this.canvas,'pointercancel',()=>this.cancelDrag());
+      on(this.canvas,'dblclick',e=>{if(e.target.closest('[data-node-id], [data-edge-index]'))this.host.querySelector('.sketch-edit-form input')?.focus();});
+      on(this.canvas,'keydown',e=>this.key(e));
+      on(this.canvas,'wheel',e=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();this.zoom(e.deltaY<0?1.15:1/1.15,e);},{passive:false});
+      on(document,'fullscreenchange',()=>this.resize());
+      this.observer=new ResizeObserver(()=>{const size=this.size(),changed=!this.lastSize||Math.abs(size.width-this.lastSize.width)>1||Math.abs(size.height-this.lastSize.height)>1;this.lastSize=size;if(changed)this.fit();else this.resize();});this.observer.observe(this.canvas);
+      this.fit();this.render();
+    }
+    destroy(){this.events.abort();this.observer.disconnect();}
+    point(event){return new DOMPoint(event.clientX,event.clientY).matrixTransform(this.svg.getScreenCTM().inverse());}
+    size(){const box=this.canvas.getBoundingClientRect();return {width:Math.max(1,box.width),height:Math.max(1,box.height)};}
+    resize(){const s=this.size();this.svg.setAttribute('viewBox',`${this.camera.x} ${this.camera.y} ${s.width/this.camera.zoom} ${s.height/this.camera.zoom}`);this.host.querySelector('[data-editor-zoom]').textContent=Math.round(this.camera.zoom*100)+'%';this.draw();}
+    fit(){const s=this.size(),d=this.diagram;if(!d.nodes.length){this.camera={x:0,y:0,zoom:Math.min(1,s.width/920)};return this.resize();}const minX=Math.min(...d.nodes.map(n=>n.x))-48,minY=Math.min(...d.nodes.map(n=>n.y))-48,maxX=Math.max(...d.nodes.map(n=>n.x+220))+48,maxY=Math.max(...d.nodes.map(n=>n.y+58))+48;const zoom=clamp(Math.min(s.width/(maxX-minX),s.height/(maxY-minY),1.2),.2,2);this.camera={zoom,x:(minX+maxX-s.width/zoom)/2,y:(minY+maxY-s.height/zoom)/2};this.resize();}
+    zoom(factor,event){const s=this.size(),old=this.camera.zoom,next=clamp(old*factor,.2,2.5),p=event?this.point(event):{x:this.camera.x+s.width/old/2,y:this.camera.y+s.height/old/2};this.camera.x=p.x-(p.x-this.camera.x)*old/next;this.camera.y=p.y-(p.y-this.camera.y)*old/next;this.camera.zoom=next;this.resize();}
+    draw(){const s=this.size(),c=this.camera;this.svg.innerHTML=`<defs><pattern id="sketch-grid-${this.id}" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".8" fill="#dcd8ee"/></pattern></defs><rect x="${c.x}" y="${c.y}" width="${s.width/c.zoom}" height="${s.height/c.zoom}" fill="url(#sketch-grid-${this.id})"/>${svg(this.diagram,this.id,{interactive:true,...this.selected})}${this.drag?.type==='link'?`<path class="sketch-link sketch-preview" d="M ${this.drag.start.x} ${this.drag.start.y} L ${this.drag.end.x} ${this.drag.end.y}"/>`:''}`;this.host.querySelector('.sketch-empty-state').hidden=!!this.diagram.nodes.length;this.canvas.dataset.mode=this.mode;}
+    render(){this.draw();this.context();for(const b of this.host.querySelectorAll('[data-editor-action]')){const a=b.dataset.editorAction;if(['select','pan','connect'].includes(a))b.setAttribute('aria-pressed',String(a===this.mode));if(a==='undo')b.disabled=!this.history.length;if(a==='redo')b.disabled=!this.future.length;}}
+    context(){const box=this.host.querySelector('.sketch-context'),node=this.diagram.nodes.find(n=>n.id===this.selected.node),edge=this.diagram.edges[this.selected.edge];if(!node&&!edge){box.innerHTML='<span class="sketch-context-hint">Выберите блок или стрелку для редактирования. Масштаб: Ctrl + колесо.</span>';return;}const label=node?'Название блока':'Подпись связи',value=node?.label??edge.label;box.innerHTML=`<form class="sketch-edit-form"><label class="x-field">${label}<input name="label" maxlength="${node?60:80}" value="${esc(value)}" placeholder="${node?'Название компонента':'HTTP, SQL или событие'}" ${node?'required':''}></label><button class="btn" type="submit">Применить</button><button class="btn" type="button" data-editor-action="delete" aria-label="Удалить выбранное">Удалить</button></form>`;}
+    message(text){this.host.querySelector('#sketch-status').textContent=text;}
+    commit(before){if(JSON.stringify(before)===JSON.stringify(this.diagram))return;this.history.push(before);if(this.history.length>40)this.history.shift();this.future=[];this.write(clone(this.diagram));this.render();}
+    add(kind,point){if(this.diagram.nodes.length>=30)return this.notify('На схеме может быть до 30 блоков.');const before=clone(this.diagram),meta=type(kind);let position=null;for(let i=0;i<300;i++){const p=point?{x:point.x+(i%5)*40,y:point.y+Math.floor(i/5)*80}:{x:40+(i%4)*260,y:60+Math.floor(i/4)*120};p.x=clamp(Math.round(p.x/20)*20,8,3380);p.y=clamp(Math.round(p.y/20)*20,8,2342);if(!this.diagram.nodes.some(n=>Math.abs(n.x-p.x)<240&&Math.abs(n.y-p.y)<78)){position=p;break;}}if(!position)return this.notify('Освободите место для нового блока.');const count=this.diagram.nodes.filter(n=>n.kind===meta.id).length,id='n'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);this.diagram.nodes.push({id,kind:meta.id,label:meta.name+(count?' '+(count+1):''),...position});this.selected={node:id,edge:null};this.commit(before);if(!point)this.fit();this.message('Компонент добавлен. Название можно изменить ниже.');}
+    link(from,to,fromPort,toPort){if(from===to)return;const existing=this.diagram.edges.findIndex(e=>e.from===from&&e.to===to);if(existing>=0){this.selected={node:null,edge:existing};this.render();return;}if(this.diagram.edges.length>=90)return this.notify('На схеме может быть до 90 связей.');const before=clone(this.diagram),edge={from,to,label:''};if(ports[fromPort])edge.fromPort=fromPort;if(ports[toPort])edge.toPort=toPort;this.diagram.edges.push(edge);this.selected={node:null,edge:this.diagram.edges.length-1};this.commit(before);this.message('Связь добавлена. Укажите протокол или смысл взаимодействия.');}
+    rename(value){const before=clone(this.diagram),node=this.diagram.nodes.find(n=>n.id===this.selected.node),edge=this.diagram.edges[this.selected.edge];if(node&&String(value).trim())node.label=String(value).trim().slice(0,60);else if(edge)edge.label=String(value).trim().slice(0,80);this.commit(before);this.message('Название сохранено.');}
+    async action(action){if(['select','pan','connect'].includes(action)){this.mode=action;this.connectFrom=null;this.render();this.message(action==='connect'?'Выберите блок-отправитель, затем блок-получатель.':'Перетащите блок или свободное поле.');return;}if(action==='zoom-in')return this.zoom(1.25);if(action==='zoom-out')return this.zoom(.8);if(action==='fit')return this.fit();if(action==='fullscreen'){if(this.host.classList.contains('sketch-expanded')){this.host.classList.remove('sketch-expanded');this.resize();return;}if(document.fullscreenElement===this.host)await document.exitFullscreen();else try{await this.host.requestFullscreen();}catch{this.host.classList.toggle('sketch-expanded');this.resize();}return;}if(action==='undo'||action==='redo'){const from=action==='undo'?this.history:this.future,to=action==='undo'?this.future:this.history;if(!from.length)return;to.push(clone(this.diagram));this.diagram=from.pop();this.selected={node:null,edge:null};this.write(clone(this.diagram));this.render();return;}if(action==='delete'){const before=clone(this.diagram);if(this.selected.node){this.diagram.nodes=this.diagram.nodes.filter(n=>n.id!==this.selected.node);this.diagram.edges=this.diagram.edges.filter(e=>e.from!==this.selected.node&&e.to!==this.selected.node);}else if(this.selected.edge!==null)this.diagram.edges.splice(this.selected.edge,1);this.selected={node:null,edge:null};this.commit(before);}}
+    pointerDown(e){if(e.button!==0&&e.button!==1)return;e.preventDefault();const element=e.target.closest('[data-node-id]'),edge=e.target.closest('[data-edge-index]'),port=e.target.closest('[data-port]');if(element&&this.mode!=='pan'&&e.button!==1){const node=this.diagram.nodes.find(n=>n.id===element.dataset.nodeId);this.selected={node:node.id,edge:null};if(port){const p=ports[port.dataset.port];this.drag={type:'link',id:node.id,port:port.dataset.port,start:{x:node.x+p[0],y:node.y+p[1]},end:this.point(e)};}else if(this.mode==='connect'){if(this.connectFrom){this.link(this.connectFrom,node.id);this.connectFrom=null;this.mode='select';this.render();return;}this.connectFrom=node.id;this.message('Теперь выберите блок-получатель.');}else{const p=this.point(e);this.drag={type:'node',id:node.id,offset:{x:p.x-node.x,y:p.y-node.y},before:clone(this.diagram)};}}else if(edge&&this.mode!=='pan'){this.selected={node:null,edge:Number(edge.dataset.edgeIndex)};}else{this.selected={node:null,edge:null};this.drag={type:'pan',x:e.clientX,y:e.clientY,camera:{...this.camera}};}this.canvas.focus({preventScroll:true});if(this.drag)this.canvas.setPointerCapture(e.pointerId);this.render();}
+    pointerMove(e){const drag=this.drag;if(!drag)return;if(drag.type==='pan'){this.camera.x=drag.camera.x-(e.clientX-drag.x)/this.camera.zoom;this.camera.y=drag.camera.y-(e.clientY-drag.y)/this.camera.zoom;this.resize();return;}const p=this.point(e);if(drag.type==='link')drag.end=p;else{const n=this.diagram.nodes.find(n=>n.id===drag.id);n.x=clamp(Math.round((p.x-drag.offset.x)/20)*20,8,3380);n.y=clamp(Math.round((p.y-drag.offset.y)/20)*20,8,2342);}this.draw();}
+    pointerUp(e){const drag=this.drag;if(!drag)return;this.drag=null;if(drag.type==='link'){const target=document.elementFromPoint(e.clientX,e.clientY),node=target?.closest('[data-node-id]');if(node)this.link(drag.id,node.dataset.nodeId,drag.port,target.closest('[data-port]')?.dataset.port);}else if(drag.type==='node')this.commit(drag.before);if(this.canvas.hasPointerCapture(e.pointerId))this.canvas.releasePointerCapture(e.pointerId);this.render();}
+    cancelDrag(){if(this.drag?.type==='node')this.diagram=this.drag.before;this.drag=null;this.render();}
+    key(e){if((e.ctrlKey||e.metaKey)&&['z','y'].includes(e.key.toLowerCase())){e.preventDefault();this.action(e.shiftKey||e.key.toLowerCase()==='y'?'redo':'undo');return;}if(e.key==='Escape'){this.cancelDrag();this.connectFrom=null;this.mode='select';this.host.classList.remove('sketch-expanded');return;}const target=e.target.closest('[data-node-id]'),node=this.diagram.nodes.find(n=>n.id===(target?.dataset.nodeId||this.selected.node));if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();this.action('delete');return;}if(!node)return;if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();const before=clone(this.diagram),step=e.shiftKey?40:20;node.x=clamp(node.x+(e.key==='ArrowRight'?step:e.key==='ArrowLeft'?-step:0),8,3380);node.y=clamp(node.y+(e.key==='ArrowDown'?step:e.key==='ArrowUp'?-step:0),8,2342);this.selected={node:node.id,edge:null};this.commit(before);this.svg.querySelector(`[data-node-id="${node.id}"]`)?.focus();}if(e.key==='Enter'||e.key===' '){e.preventDefault();if(e.target.closest('[data-port]')||this.mode==='connect'){if(this.connectFrom){this.link(this.connectFrom,node.id);this.connectFrom=null;}else{this.connectFrom=node.id;this.mode='connect';this.message('Выберите получателя клавишей Tab и нажмите Enter.');}}else{this.selected={node:node.id,edge:null};this.context();this.host.querySelector('.sketch-edit-form input')?.focus();}}}
+  }
+  window.AtlasDiagramEditor=Object.freeze({create:(host,options)=>new Editor(host,options),geometry,bounds,svg,svgStyles,kinds:TYPES.map(t=>t.id)});
+})();
+
+</script>
+<!-- atlas-diagram-editor:end -->
 <!-- atlas-server-sync:start -->
 <script>
 /* Optional server sync. Remembered access stays in this browser, never in exports. */
@@ -358,6 +458,48 @@ html[data-atlas-access="locked"] .app,html[data-atlas-access="locked"] .sidebar,
 .top-actions{flex-shrink:0}.breadcrumb{min-width:0}.breadcrumb strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:540px){.topbar [data-x="atlas-export"]{width:auto;min-width:78px;padding:0 10px;gap:6px}.topbar [data-x="atlas-export"]>span{display:none}.topbar [data-x="atlas-export"]::after{content:"HTML";font-size:11px}}
 </style>
+<!-- atlas-diagram-styles:start -->
+<style>
+.sketch-editor{border:1px solid var(--line,#e3e6ef);border-radius:12px;overflow:hidden;background:#fff;min-width:0;margin:16px 0 6px}
+.sketch-editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px;background:#fafaff;border-bottom:1px solid #e7e5f1}
+.sketch-tools{display:flex;align-items:center;gap:4px;padding-right:8px;border-right:1px solid #e5e2ef}
+.sketch-tools:last-child{border:0;padding-right:0}.sketch-view-tools{margin-left:auto;flex-wrap:wrap}
+.sketch-editor .btn{font-size:11px;padding:7px 10px;min-height:34px;white-space:nowrap}
+.sketch-editor .btn[aria-pressed=true]{background:var(--accent-soft,#f0edff);color:var(--accent,#6b55ce);border-color:#d4caf4}
+.sketch-editor .btn:disabled{opacity:.4;cursor:default}
+.sketch-editor [data-editor-zoom]{font-size:11px;color:#7e7890;min-width:39px;text-align:center;font-variant-numeric:tabular-nums}
+.sketch-editor-layout{display:grid;grid-template-columns:156px minmax(0,1fr);min-width:0}
+.sketch-palette{padding:16px 10px;background:#fdfdff;border-right:1px solid #e9e6f2}
+.sketch-palette>strong{display:block;font-size:9px;color:#9690a6;letter-spacing:1.1px;margin:0 5px 7px}
+.sketch-palette>p{font-size:10px!important;line-height:1.65!important;color:#9b95aa!important;margin:0 5px 13px!important}
+.sketch-palette-item{display:block;width:100%;text-align:left;border:1px solid #e6e5ed;border-left:3px solid var(--component-color);border-radius:7px;padding:9px 9px;background:white;margin-bottom:6px;cursor:grab;color:#434459;min-height:43px}
+.sketch-palette-item:hover{border-color:var(--component-color);background:#fafaff}.sketch-palette-item:active{cursor:grabbing}
+.sketch-palette-item span{display:block;font-size:11px;font-weight:600}.sketch-palette-item small{display:block;margin-top:4px;color:#a09aaf;font-size:9px;line-height:1.4}
+.sketch-stage{min-width:0;min-height:0;display:flex;flex-direction:column}
+.sketch-canvas{position:relative;min-width:0;height:470px;overflow:hidden;background:#fbfcff;touch-action:none;outline-offset:-3px}
+.sketch-canvas[data-mode=pan]{cursor:grab}.sketch-canvas[data-mode=pan]:active{cursor:grabbing}
+.sketch-svg{display:block;width:100%;height:100%;min-width:0;user-select:none;touch-action:none;overflow:hidden;fill:none;stroke:none}
+.sketch-node{cursor:grab;outline:none}.sketch-node-body{fill:white;stroke:#d8dce9;stroke-width:1.3;filter:drop-shadow(0 2px 2px #38315a06)}
+.sketch-node.is-selected .sketch-node-body,.sketch-node:focus .sketch-node-body{stroke:var(--accent,#6b55ce);stroke-width:2;fill:#faf8ff}
+.sketch-node-title{font:600 12px Inter,Arial,sans-serif;fill:#33384e}.sketch-node-kind{font:10px Inter,Arial,sans-serif}
+.sketch-port{fill:white;stroke:#b2a5da;stroke-width:1.5;cursor:crosshair;outline:none}.sketch-port:hover,.sketch-port:focus{fill:#6b55ce;stroke:#6b55ce;r:8px}
+.sketch-link{fill:none;stroke:#9b93bc;stroke-width:1.6;pointer-events:none}.sketch-link.is-selected{stroke:#6b55ce;stroke-width:2.3}
+.sketch-link-hit{fill:none;stroke:transparent;stroke-width:18;cursor:pointer}.sketch-label-bg{fill:white;stroke:#e6e2f1;cursor:pointer}
+.sketch-edge-label{font:11px Inter,Arial,sans-serif;fill:#63597b;cursor:pointer}.sketch-edge-label.is-placeholder{fill:#a69db9;font-size:10px}
+.sketch-preview{stroke:#6b55ce;stroke-dasharray:6 4}
+.sketch-empty-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:30px;pointer-events:none}
+.sketch-empty-state[hidden]{display:none}.sketch-empty-state strong{font-size:15px;color:#777088;font-weight:550}.sketch-empty-state span{font-size:12px;line-height:1.8;color:#a69eb6}
+.sketch-context{border-top:1px solid #e8e5f2;min-height:80px;padding:13px 14px;background:white;display:flex;align-items:center;flex-shrink:0}
+.sketch-context-hint{font-size:10px;color:#9d96ac;line-height:1.8}.sketch-edit-form{display:flex;align-items:flex-end;gap:8px;width:100%;flex-wrap:wrap}.sketch-edit-form .x-field{flex:1;min-width:130px}.sketch-edit-form input{width:100%;font-size:12px}
+.sketch-editor-status{border-top:1px solid #e9e6f2;margin:0!important;padding:10px 14px;font-size:10px!important;color:#9a91ab!important;line-height:1.6!important}
+.sketch-editor:fullscreen,.sketch-editor.sketch-expanded{background:white;width:100%;height:100%;border:0;border-radius:0;margin:0;display:flex;flex-direction:column;padding:16px}
+.sketch-editor.sketch-expanded{position:fixed;inset:0;z-index:1000}.sketch-editor:fullscreen .sketch-editor-layout,.sketch-expanded .sketch-editor-layout{flex:1;min-height:0}.sketch-editor:fullscreen .sketch-stage,.sketch-expanded .sketch-stage{height:100%;min-height:0}.sketch-editor:fullscreen .sketch-canvas,.sketch-expanded .sketch-canvas{height:0;flex:1 1 0;min-height:0}
+@media(max-width:1200px){.sketch-editor-layout{grid-template-columns:130px minmax(0,1fr)}.sketch-view-tools{margin-left:0}.sketch-palette-item small{display:none}.sketch-canvas{height:430px}}
+@media(max-width:700px){.sketch-editor-layout{grid-template-columns:minmax(0,1fr)}.sketch-palette{border-right:0;border-bottom:1px solid #e9e6f2;display:flex;gap:6px;overflow-x:auto;padding:10px}.sketch-palette>strong,.sketch-palette>p{display:none}.sketch-palette-item{width:auto;flex:0 0 auto;min-height:36px;margin:0;padding:8px 10px}.sketch-palette-item span{font-size:10px}.sketch-canvas{height:360px}.sketch-editor-toolbar{gap:6px;padding:8px}.sketch-tools{gap:3px;padding-right:5px}.sketch-editor .btn{font-size:10px;padding:7px 8px;min-height:36px}.sketch-edit-form input{font-size:16px}.sketch-context{padding:12px}.sketch-context-hint{font-size:10px}.sketch-editor:fullscreen .sketch-editor-layout,.sketch-expanded .sketch-editor-layout{display:flex;flex-direction:column}.sketch-editor:fullscreen .sketch-stage,.sketch-expanded .sketch-stage{flex:1;min-height:0}}
+@media print{.sketch-palette,.sketch-editor-toolbar,.sketch-context,.sketch-editor-status{display:none}.sketch-editor-layout{display:block}.sketch-canvas{height:450px}}
+
+</style>
+<!-- atlas-diagram-styles:end -->
 </head>
 <body>
 <a class="skip" href="#main-content">Перейти к содержимому</a>
@@ -7355,6 +7497,7 @@ function validateState(raw){
  return clean;
 }
 let state=defaultState();
+let activeSketchEditor=null;
 const ui={route:'technologies',search:{technologies:'',topics:'',questions:'',tasks:''},category:{technologies:'all',topics:'all',questions:'all',tasks:'all'},status:{technologies:'all',topics:'all',questions:'all',tasks:'all'},closedTech:new Set(),openTechComments:new Set(),openTopics:new Set([1]),openQuestions:new Set(),interview:false,lab:{taskId:null,tab:'brief',tool:'move',selectedNode:null,selectedEdge:null,connectFrom:null,history:[],listScroll:0}};
 function hydrateIcons(root=document){$$('[data-icon]',root).forEach(el=>{el.innerHTML=icon(el.dataset.icon);el.removeAttribute('data-icon');});}
 function save(){
@@ -7374,6 +7517,7 @@ function filterBtn(value,label,count,ic=''){return `<button class="filter ${ui.s
 function empty(title='Ничего не найдено',text='Попробуйте другой запрос или сбросьте фильтры.'){return `<div class="empty"><span class="empty-icon">${icon('search')}</span><h3>${title}</h3><p>${text}</p><button class="btn" data-action="clear-filters">Сбросить фильтры</button></div>`;}
 function options(groups,allLabel){return `<option value="all">${allLabel}</option>`+groups.map(g=>`<option value="${g.id}" ${String(ui.category[ui.route])===String(g.id)?'selected':''}>${esc(g.title)}</option>`).join('');}
 function renderPage(){
+ activeSketchEditor?.destroy();activeSketchEditor=null;
  const focused=document.activeElement?.id;const scrollY=window.scrollY;
  const taskDetail=ui.route==='tasks'&&!!ui.lab.taskId;
  $('#searchbar').hidden=taskDetail;$('#view-toolbar').hidden=taskDetail;$('#result-meta').hidden=taskDetail;
@@ -7546,8 +7690,8 @@ function clamp(n,a,b){return Math.max(a,Math.min(b,n));}
 function validSketch(raw){
  if(!raw || typeof raw!=='object'||!Array.isArray(raw.nodes)||!Array.isArray(raw.edges)||raw.nodes.length>30||raw.edges.length>90)throw new Error('Некорректная схема задачи.');
  const seen=new Set();
- const nodes=raw.nodes.map(n=>{if(!n||typeof n.id!=='string'||!/^[a-zA-Z0-9_-]{1,40}$/.test(n.id)||seen.has(n.id)||typeof n.label!=='string'||n.label.length>60||!Number.isFinite(n.x)||!Number.isFinite(n.y))throw new Error('Некорректный блок схемы.');seen.add(n.id);return {id:n.id,label:n.label,x:clamp(n.x,8,680),y:clamp(n.y,8,452)};});
- const edges=raw.edges.map(e=>{if(!e||!seen.has(e.from)||!seen.has(e.to)||e.from===e.to||typeof e.label!=='string'||e.label.length>80)throw new Error('Некорректная связь схемы.');return {from:e.from,to:e.to,label:e.label};});
+ const nodes=raw.nodes.map(n=>{if(!n||typeof n.id!=='string'||!/^[a-zA-Z0-9_-]{1,40}$/.test(n.id)||seen.has(n.id)||typeof n.label!=='string'||n.label.length>60||!Number.isFinite(n.x)||!Number.isFinite(n.y))throw new Error('Некорректный блок схемы.');seen.add(n.id);return {id:n.id,label:n.label,kind:AtlasDiagramEditor.kinds.includes(n.kind)?n.kind:'component',x:clamp(n.x,8,3380),y:clamp(n.y,8,2342)};});
+ const edges=raw.edges.map(e=>{if(!e||!seen.has(e.from)||!seen.has(e.to)||e.from===e.to||typeof e.label!=='string'||e.label.length>80)throw new Error('Некорректная связь схемы.');const edge={from:e.from,to:e.to,label:e.label};for(const key of ['fromPort','toPort'])if(['left','right','top','bottom'].includes(e[key]))edge[key]=e[key];return edge;});
  return {nodes,edges};
 }
 function validTasks(raw){
@@ -7606,7 +7750,7 @@ function labFoot(t,tab){const tabs=labTabs(),i=tabs.findIndex(x=>x[0]===tab);ret
 function labStage(t,tab){
  const s=taskState(t.id);
  if(tab==='brief')return `<div class="lab-panel"><div class="lab-kicker">БИЗНЕС-СЦЕНАРИЙ</div><h2>Что предстоит построить</h2><p class="lab-brief-lead">${esc(t.brief)}</p><div class="lab-template"><strong>Границы MVP.</strong> ${esc(t.scope)}</div><h3>Условия стенда</h3><p>${esc(t.load)}</p><p class="lab-lock-note">Числа заданы для упражнения. Это не обещание производительности и не факты о реальном продукте.</p></div><div class="lab-panel"><div class="lab-kicker">ЧТО ДОЛЖНО РАБОТАТЬ</div><h2>Требования</h2>${labList(t.requirements,true)}</div><div class="lab-panel"><div class="lab-kicker">ПО ЖЕЛАНИЮ ПЕРЕД СХЕМОЙ</div><h2>Мини-справочник: понять инструмент</h2>${t.theory.map(([name,body])=>`<details class="lab-theory"><summary>${esc(name)}</summary><p>${esc(body)}</p></details>`).join('')}<p class="lab-lock-note">Архитектурный разбор находится на отдельном этапе. Сначала сформулируйте своё решение.</p><a class="lab-order-link" href="${labLink(t,'design')}">Перейти к своей схеме ${icon('chevron-right')}</a></div>`;
- if(tab==='design')return `<div class="lab-panel"><div class="lab-kicker">ДО ПРОСМОТРА ОТВЕТА</div><h2>Спроектируйте своё решение</h2><p>Обозначьте компоненты, владельцев данных и стрелки взаимодействия. Зафиксируйте не только успешный путь, но и восстановление после сбоя.</p>${labChecks(t,t.design,'design')}</div><div class="lab-panel"><div class="lab-export-row"><h2>Моя архитектура</h2><button class="btn" data-action="lab-export-svg" data-id="${t.id}">${icon('download')}SVG</button></div><p class="sketch-help">Введите название и добавьте блок. Перетаскивайте блоки. «Связать» → первый блок → второй блок. Выбранный блок или стрелку можно переименовать и удалить. Клавиши со стрелками перемещают выбранный блок.</p><div class="sketch-toolbar"><label class="sr-only" for="sketch-label">Название блока или связи</label><input class="sketch-label" id="sketch-label" maxlength="60" placeholder="API, PostgreSQL, клиент…"><button class="btn" data-action="sketch-add" data-id="${t.id}">${icon('plus')}Блок</button><button class="btn" data-action="sketch-rename" data-id="${t.id}" title="Применить название к выбранному блоку или связи">Переименовать</button><button id="sketch-connect" class="btn ${ui.lab.tool==='connect'?'active':''}" data-action="sketch-connect" data-id="${t.id}" aria-pressed="${ui.lab.tool==='connect'}">${icon('workflow')}Связать</button><button class="btn" data-action="sketch-delete" data-id="${t.id}" title="Удалить выбранный блок или связь">${icon('trash')}Удалить</button><button class="btn" data-action="sketch-undo" data-id="${t.id}" title="Отменить изменение схемы">${icon('reset')}Отменить</button><button class="btn" data-action="sketch-clear" data-id="${t.id}">Очистить</button></div><div class="lab-diagram-scroll sketch-board ${ui.lab.tool==='connect'?'connecting':''}" id="sketch-host"></div><div class="sketch-status" id="sketch-status" role="status">Схема автоматически сохраняется в профиле.</div><label class="lab-field-label" for="lab-design">Обоснование решения и сценарии сбоев</label><textarea class="lab-note" id="lab-design" data-lab-note="design" data-id="${t.id}" maxlength="12000" placeholder="Какие данные где хранятся? Каков контракт? Где commit? Что будет при повторе, гонке и отказе? Почему выбраны именно эти компоненты?">${esc(s.design)}</textarea><div class="lab-action-row"><button class="btn btn-primary" data-action="lab-snapshot" data-id="${t.id}">${icon('check-circle')}${s.snapshot?'Обновить снимок решения':'Зафиксировать решение'}</button><a class="btn" href="${labLink(t,'solution')}">Перейти к разбору${icon('chevron-right')}</a></div>${s.snapshot?`<div class="lab-snapshot">${icon('check-circle')}Снимок: ${esc(new Date(s.snapshot.at).toLocaleString('ru-RU'))}. Черновик можно редактировать дальше.</div>`:'<p class="lab-lock-note" style="margin-top:12px">Снимок сохранит текущую схему и текст для сравнения с ответом. Автосохранение черновика работает и без снимка.</p>'}</div>`;
+ if(tab==='design')return `<div class="lab-panel"><div class="lab-kicker">ДО ПРОСМОТРА ОТВЕТА</div><h2>Спроектируйте своё решение</h2><p>Обозначьте компоненты, владельцев данных и стрелки взаимодействия. Зафиксируйте не только успешный путь, но и восстановление после сбоя.</p>${labChecks(t,t.design,'design')}</div><div class="lab-panel"><div class="lab-export-row"><h2>Моя архитектура</h2><button class="btn" data-action="lab-export-svg" data-id="${t.id}">${icon('download')}SVG</button></div><p class="sketch-help">Соберите систему из компонентов, соедините блоки и подпишите взаимодействия. Для редактирования выберите блок или стрелку.</p><div id="sketch-editor"></div><label class="lab-field-label" for="lab-design">Обоснование решения и сценарии сбоев</label><textarea class="lab-note" id="lab-design" data-lab-note="design" data-id="${t.id}" maxlength="12000" placeholder="Какие данные где хранятся? Каков контракт? Где commit? Что будет при повторе, гонке и отказе? Почему выбраны именно эти компоненты?">${esc(s.design)}</textarea><div class="lab-action-row"><button class="btn btn-primary" data-action="lab-snapshot" data-id="${t.id}">${icon('check-circle')}${s.snapshot?'Обновить снимок решения':'Зафиксировать решение'}</button><a class="btn" href="${labLink(t,'solution')}">Перейти к разбору${icon('chevron-right')}</a></div>${s.snapshot?`<div class="lab-snapshot">${icon('check-circle')}Снимок: ${esc(new Date(s.snapshot.at).toLocaleString('ru-RU'))}. Черновик можно редактировать дальше.</div>`:'<p class="lab-lock-note" style="margin-top:12px">Снимок сохранит текущую схему и текст для сравнения с ответом. Автосохранение черновика работает и без снимка.</p>'}</div>`;
  if(tab==='solution'){
   if(!s.revealed)return `<div class="lab-panel lab-lock-panel"><span class="lab-lock-icon">${icon('lock')}</span><div class="lab-kicker">СНАЧАЛА ВАША ВЕРСИЯ</div><h2>Разбор пока скрыт</h2><p>Сначала предложите собственную архитектуру. Затем сравните инварианты, границы транзакций и поведение при сбоях, а не только названия блоков.</p><button class="btn btn-primary" data-action="lab-reveal" data-id="${t.id}">${icon('eye')}Открыть разбор</button><a class="btn" href="${labLink(t,'design')}">К моей схеме</a><p class="lab-lock-note" style="margin-top:16px">${s.snapshot?'Ваш снимок решения сохранён.':'Снимок ещё не сделан. Разбор всё равно можно открыть после подтверждения.'} Ответ — ориентир, не единственное допустимое решение.</p></div>`;
   return `<div class="lab-panel"><div class="lab-export-row"><div class="lab-kicker">ОДИН ИЗ ДОПУСТИМЫХ ПОДХОДОВ</div><button class="lab-quiet-btn" data-action="lab-hide" data-id="${t.id}">${icon('eye-off')} Скрыть разбор</button></div><h2>Референсная архитектура</h2><p>На схеме показаны основные связи. Транзакционные границы и протоколы восстановления раскрыты ниже; другая корректная архитектура тоже допустима.</p>${drawDiagram(t.answerDiagram,'solution-'+t.id,false)}${edgeLegend(t.answerDiagram)}</div><div class="lab-panel"><h2>Почему решение устроено так</h2>${t.solution.map(x=>`<p>${esc(x)}</p>`).join('')}<div class="lab-tradeoff"><strong>Компромисс.</strong> ${esc(t.tradeoff)}</div><h3>Документация по механизмам</h3>${sourceLinks(t)}</div><div class="lab-panel"><h2>Сверьте со своей версией</h2>${s.snapshot?`<details class="lab-snapshot-box"><summary>Мой снимок · ${esc(new Date(s.snapshot.at).toLocaleString('ru-RU'))}</summary><div class="lab-snapshot-body">${esc(s.snapshot.text||'Текст не заполнен; ниже сохранена схема.')}</div>${s.snapshot.sketch.nodes.length?drawDiagram(s.snapshot.sketch,'snapshot-'+t.id,false):''}</details>`:'<p>Снимок до разбора не был сохранён. Текущий черновик остаётся на этапе «Моя схема».</p>'}<label class="lab-field-label" for="lab-reflection">Что изменю и почему</label><textarea class="lab-note" id="lab-reflection" data-lab-note="reflection" data-id="${t.id}" maxlength="12000" placeholder="Что совпало? Какой сбой я пропустил? Что оставлю иначе и чем обосную? Какой эксперимент проверит спорное место?">${esc(s.reflection)}</textarea></div>`;
@@ -7615,55 +7759,29 @@ function labStage(t,tab){
  return `<div class="lab-panel"><div class="lab-kicker">ПРОВЕРКА РЕЗУЛЬТАТА</div><h2>Критерии приёмки</h2><p>Выполните эти проверки на своей реализации и отметьте подтверждённые результаты. Чекбоксы — не автоматический запуск тестов и не оценка грейда.</p>${labChecks(t,t.tests,'test')}<div class="lab-test-result"><p><strong>Подтверждено: ${taskCount(t)} из ${t.tests.length}.</strong> Для завершения отметьте все критерии. Результат можно пересмотреть, сняв любой пункт.</p><button class="btn btn-primary" data-action="lab-complete" data-id="${t.id}" ${taskCount(t)<t.tests.length?'disabled':''}>${icon('check-circle')}${s.status==='done'?'Задача завершена':'Завершить по самопроверке'}</button></div></div><div class="lab-panel"><div class="lab-kicker">ЕЩЁ ОДИН УРОВЕНЬ ГЛУБИНЫ</div><h2>Усложнение для Senior</h2>${labList(t.senior,true)}<div class="lab-tradeoff">Эти расширения не входят в обязательный MVP. Объяснение корректности и компромиссов важнее количества установленных технологий.</div></div><div class="lab-panel"><h2>Материалы для сдачи</h2>${labList(t.deliver)}<div class="lab-action-row"><button class="btn" data-action="lab-export-work" data-id="${t.id}">${icon('file')}Скачать мой отчёт</button><button class="btn" data-action="lab-export-svg" data-id="${t.id}">${icon('download')}Моя схема .svg</button></div><p class="lab-lock-note" style="margin-top:12px">JSON-профиль в верхнем меню сохраняет все заметки, снимки, схемы и отметки всех задач.</p></div>`;
 }
 // Геометрия диаграмм. SVG собирается только из экранированного текста и проверенных чисел.
-function edgeGeometry(a,b){
- const w=220,h=58,ax=a.x+w/2,ay=a.y+h/2,bx=b.x+w/2,by=b.y+h/2,dx=bx-ax,dy=by-ay;
- let x1,y1,x2,y2,c1x,c1y,c2x,c2y;
- if(Math.abs(dx)>=Math.abs(dy)*1.6){x1=ax+(dx>=0?w/2:-w/2);y1=ay;x2=bx+(dx>=0?-w/2:w/2);y2=by;const d=Math.max(28,Math.abs(x2-x1)/2);c1x=x1+(dx>=0?d:-d);c1y=y1;c2x=x2+(dx>=0?-d:d);c2y=y2;}
- else{x1=ax;y1=ay+(dy>=0?h/2:-h/2);x2=bx;y2=by+(dy>=0?-h/2:h/2);const d=Math.max(26,Math.abs(y2-y1)/2);c1x=x1;c1y=y1+(dy>=0?d:-d);c2x=x2;c2y=y2+(dy>=0?-d:d);}
- return {path:`M ${x1} ${y1} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`,mx:(x1+3*c1x+3*c2x+x2)/8,my:(y1+3*c1y+3*c2y+y2)/8};
-}
+function edgeGeometry(a,b,edge){return AtlasDiagramEditor.geometry(a,b,edge);}
 function wrapNodeLabel(label){
  const words=label.split(/\s+/),lines=[''];for(const word0 of words){const chunks=word0.match(/.{1,23}/gu)||[''];for(const word of chunks){const i=lines.length-1;if((lines[i]+' '+word).trim().length>25&&lines[i])lines.push(word);else lines[i]+=(lines[i]?' ':'')+word;}}
  return lines.slice(0,2).map((l,i,ls)=>`<tspan x="110" y="${ls.length===1?34:26+i*17}">${esc(l.length>25?l.slice(0,24)+'…':l)}${i===1&&lines.length>2?'…':''}</tspan>`).join('');
 }
-function svgInner(d,id,interactive=false){
- const arr=d.nodes;return `<defs><marker id="arrow-${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b9b0d5"/></marker></defs>${d.edges.map((e,i)=>{const a=arr.find(n=>n.id===e.from),b=arr.find(n=>n.id===e.to);if(!a||!b)return '';const g=edgeGeometry(a,b);return `<g>${interactive?`<path class="edge-hit" data-edge-index="${i}" d="${g.path}"/>`:''}<path class="edge-path ${interactive&&ui.lab.selectedEdge===i?'selected-edge':''}" d="${g.path}" marker-end="url(#arrow-${id})" pointer-events="none"/>${!interactive||e.label?`<circle class="edge-dot" cx="${g.mx}" cy="${g.my}" r="9" pointer-events="none"/><text class="edge-num" x="${g.mx}" y="${g.my+3.5}" text-anchor="middle" pointer-events="none">${i+1}</text>`:''}<title>${esc(e.label||'Связь')}</title></g>`;}).join('')}${arr.map(n=>`<g class="diagram-node ${interactive&&ui.lab.selectedNode===n.id?'selected':''}" transform="translate(${n.x},${n.y})" ${interactive?`data-node-id="${esc(n.id)}" tabindex="0" role="button" aria-label="Блок ${esc(n.label)}. Клавиши со стрелками перемещают блок."`:''}><rect width="220" height="58" rx="10"/><text text-anchor="middle">${wrapNodeLabel(n.label)}</text><title>${esc(n.label)}</title></g>`).join('')}${!arr.length?'<text class="sketch-empty" x="450" y="220" text-anchor="middle">Добавьте первый компонент вашей системы</text><text class="sketch-empty" x="450" y="245" text-anchor="middle">Блоки и связи появятся здесь</text>':''}`;
-}
-function drawDiagram(d,id,interactive=false){const height=interactive?520:Math.max(180,...d.nodes.map(n=>n.y+100));return `<div class="lab-diagram-scroll"><svg xmlns="http://www.w3.org/2000/svg" class="atlas-diagram" viewBox="0 0 920 ${height}" role="img" aria-label="Схема компонентов и направлений взаимодействия">${svgInner(d,id,interactive)}</svg></div>`;}
+function svgInner(d,id,interactive=false){return AtlasDiagramEditor.svg(d,id,{interactive});}
+function drawDiagram(d,id,interactive=false){const b=AtlasDiagramEditor.bounds(d);return `<div class="lab-diagram-scroll"><svg xmlns="http://www.w3.org/2000/svg" class="atlas-diagram" viewBox="${b.x} ${b.y} ${Math.max(920,b.width)} ${Math.max(180,b.height)}" role="img" aria-label="Схема компонентов и направлений взаимодействия">${svgInner(d,id,interactive)}</svg></div>`;}
 function edgeLegend(d){return `<div class="lab-edge-legend">${d.edges.map((e,i)=>`<div class="lab-edge-item"><b>${i+1}</b><span>${esc(d.nodes.find(n=>n.id===e.from)?.label||'')} → ${esc(d.nodes.find(n=>n.id===e.to)?.label||'')}<br>${esc(e.label)}</span></div>`).join('')}</div>`;}
-function pushSketchUndo(t){ui.lab.history.push(JSON.stringify(taskState(t.id).sketch));if(ui.lab.history.length>40)ui.lab.history.shift();}
-function renderSketchOnly(t){const host=$('#sketch-host');if(!host)return;host.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" id="sketch-svg" class="atlas-diagram" viewBox="0 0 920 520" role="group" aria-label="Редактор схемы архитектуры">${svgInner(taskState(t.id).sketch,'edit-'+t.id,true)}</svg>`;host.classList.toggle('connecting',ui.lab.tool==='connect');const btn=$('#sketch-connect');if(btn){btn.classList.toggle('active',ui.lab.tool==='connect');btn.setAttribute('aria-pressed',ui.lab.tool==='connect');}}
-function sketchMessage(text){if($('#sketch-status'))$('#sketch-status').textContent=text;}
 function initSketch(t){
- renderSketchOnly(t);const host=$('#sketch-host');let drag=null;
- const point=(e)=>{const svg=$('#sketch-svg'),ctm=svg.getScreenCTM();if(!ctm)return null;return new DOMPoint(e.clientX,e.clientY).matrixTransform(ctm.inverse());};
- host.addEventListener('pointerdown',e=>{
-  const nodeEl=e.target.closest('[data-node-id]'),edgeEl=e.target.closest('[data-edge-index]');
-  if(!nodeEl){ui.lab.selectedNode=null;ui.lab.selectedEdge=edgeEl?Number(edgeEl.dataset.edgeIndex):null;if(edgeEl){$('#sketch-label').value=taskState(t.id).sketch.edges[ui.lab.selectedEdge].label;sketchMessage('Выбрана связь. Введите подпись и нажмите «Переименовать».');}else{ui.lab.connectFrom=null;$('#sketch-label').value='';}renderSketchOnly(t);return;}
-  const id=nodeEl.dataset.nodeId;const d=taskState(t.id,true).sketch,n=d.nodes.find(n=>n.id===id);if(!n)return;
-  ui.lab.selectedNode=id;ui.lab.selectedEdge=null;$('#sketch-label').value=n.label;
-  if(ui.lab.tool==='connect'){
-   if(!ui.lab.connectFrom){ui.lab.connectFrom=id;renderSketchOnly(t);sketchMessage('Теперь выберите второй блок — получателя.');return;}
-   if(ui.lab.connectFrom===id){sketchMessage('Выберите другой блок.');return;}
-   if(d.edges.length>=90){notify('Максимум 90 связей на схеме.');return;}
-   if(!d.edges.some(x=>x.from===ui.lab.connectFrom&&x.to===id)){pushSketchUndo(t);d.edges.push({from:ui.lab.connectFrom,to:id,label:''});save();}
-   ui.lab.connectFrom=null;ui.lab.tool='move';renderSketchOnly(t);sketchMessage('Связь добавлена. Нажмите на стрелку, чтобы задать подпись.');return;
-  }
-  const p=point(e);if(!p)return;e.preventDefault();pushSketchUndo(t);drag={id,offsetX:p.x-n.x,offsetY:p.y-n.y,changed:false};host.setPointerCapture(e.pointerId);renderSketchOnly(t);sketchMessage('Блок выбран. Перетащите его или измените название.');
- });
- host.addEventListener('pointermove',e=>{if(!drag)return;const p=point(e);if(!p)return;const n=taskState(t.id,true).sketch.nodes.find(n=>n.id===drag.id);if(!n)return;n.x=clamp(p.x-drag.offsetX,8,680);n.y=clamp(p.y-drag.offsetY,8,452);drag.changed=true;renderSketchOnly(t);});
- const finish=()=>{if(!drag)return;if(drag.changed)save();else ui.lab.history.pop();drag=null;};host.addEventListener('pointerup',finish);host.addEventListener('pointercancel',finish);
- host.addEventListener('keydown',e=>{const el=e.target.closest('[data-node-id]');if(!el)return;const d=taskState(t.id,true).sketch,n=d.nodes.find(x=>x.id===el.dataset.nodeId);if(!n)return;ui.lab.selectedNode=n.id;ui.lab.selectedEdge=null;
-  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();pushSketchUndo(t);const step=e.shiftKey?20:5;n.x=clamp(n.x+(e.key==='ArrowRight'?step:e.key==='ArrowLeft'?-step:0),8,680);n.y=clamp(n.y+(e.key==='ArrowDown'?step:e.key==='ArrowUp'?-step:0),8,452);save();renderSketchOnly(t);$(`[data-node-id="${n.id}"]`,host)?.focus({preventScroll:true});}
-  if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();labAction('sketch-delete',{dataset:{id:String(t.id)}});}
-  if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#sketch-label').value=n.label;renderSketchOnly(t);$('#sketch-label').focus();}
+ activeSketchEditor?.destroy();
+ activeSketchEditor=AtlasDiagramEditor.create($('#sketch-editor'),{
+  read:()=>taskState(t.id).sketch,
+  write:diagram=>{const task=taskState(t.id,true);task.sketch=diagram;if(task.status==='todo')task.status='design';save();const select=$('#lab-status');if(select)select.value=task.status;},
+  notify
  });
 }
 function svgExport(t){
  const d=taskState(t.id).sketch;if(!d.nodes.length){notify('Сначала добавьте блоки на свою схему.');return;}
- const style='<style>text{font-family:Arial,sans-serif;fill:#635e7a}.diagram-node rect{fill:#fff;stroke:#d8d2e9;stroke-width:1.4}.diagram-node text{font-size:12px;font-weight:550}.edge-path{fill:none;stroke:#b9b0d5;stroke-width:1.5}.edge-dot{fill:#fbfaff;stroke:#d9d1ed}.edge-num{font-size:10px;fill:#9583b8}</style>';
- const labels=d.edges.map((e,i)=>`<text x="25" y="${560+i*23}" font-size="12">${esc((i+1)+'. '+d.nodes.find(n=>n.id===e.from).label+' → '+d.nodes.find(n=>n.id===e.to).label+(e.label?' — '+e.label:''))}</text>`).join('');
- downloadText(`<svg xmlns="http://www.w3.org/2000/svg" width="920" height="${Math.max(540,580+d.edges.length*23)}" viewBox="0 0 920 ${Math.max(540,580+d.edges.length*23)}">${style}<rect width="100%" height="100%" fill="#fbfcff"/>${svgInner(d,'export-'+t.id,false)}${labels}</svg>`,filename('task-'+t.id+'-diagram','svg'),'image/svg+xml;charset=utf-8');notify('Схема подготовлена в SVG.');
+ const b=AtlasDiagramEditor.bounds(d),width=Math.max(920,b.width),top=b.y+b.height+30;
+ let line=0;
+ const labels=d.edges.map((e,i)=>{const text=(i+1)+'. '+d.nodes.find(n=>n.id===e.from).label+' → '+d.nodes.find(n=>n.id===e.to).label+(e.label?' — '+e.label:'');const chunks=text.match(/.{1,100}/gu)||[];return chunks.map(chunk=>`<text x="${b.x+24}" y="${top+line++*22}" font-size="12">${esc(chunk)}</text>`).join('');}).join('');
+ const height=b.height+60+line*22;
+ downloadText(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${b.x} ${b.y} ${width} ${height}"><style>${AtlasDiagramEditor.svgStyles}text{font-family:Arial,sans-serif}</style><rect x="${b.x}" y="${b.y}" width="100%" height="100%" fill="#fbfcff"/>${svgInner(d,'export-'+t.id,false)}${labels}</svg>`,filename('task-'+t.id+'-diagram','svg'),'image/svg+xml;charset=utf-8');notify('Схема подготовлена в SVG.');
 }
 function labMarkdown(t,includeAnswer=false){
  let out=`# ${String(t.id).padStart(2,'0')}. ${t.title}\n\nУровень: ${LAB_LEVELS.find(l=>l.id===t.level).title}. Учебный кейс; язык на выбор.\n\n${t.brief}\n\n## Результат\n\n${t.outcome}\n\n## Границы\n\n${t.scope}\n\n${t.load}\n\n`;
@@ -7694,13 +7812,7 @@ function labAction(action,el){
  case 'lab-export-task':downloadText(labMarkdown(t,s.revealed),filename('task-'+id,'md'),'text/markdown;charset=utf-8');notify(s.revealed?'Задание и открытый разбор подготовлены.':'Задание подготовлено без скрытого разбора.');break;
  case 'lab-export-work':downloadText(labWorkMarkdown(t),filename('task-'+id+'-work','md'),'text/markdown;charset=utf-8');notify('Ваш отчёт подготовлен. Для полной копии схемы используйте JSON.');break;
  case 'lab-export-svg':svgExport(t);break;
- case 'sketch-add':{if(s.sketch.nodes.length>=30){notify('На одной схеме можно разместить до 30 блоков.');return;}pushSketchUndo(t);const label=($('#sketch-label')?.value||'').trim()||'Компонент '+(s.sketch.nodes.length+1);let nid='n'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);const i=s.sketch.nodes.length;s.sketch.nodes.push({id:nid,label:label.slice(0,60),x:30+(i%3)*295,y:30+(Math.floor(i/3)%3)*145});ui.lab.selectedNode=nid;ui.lab.selectedEdge=null;$('#sketch-label').value='';if(s.status==='todo')s.status='design';save();if($('#lab-status'))$('#lab-status').value=s.status;renderSketchOnly(t);sketchMessage('Блок добавлен. Его можно перемещать мышью или клавишами.');break;}
- case 'sketch-rename':{const text=($('#sketch-label')?.value||'').trim();if(!text){notify('Введите новое название.');return;}const target=ui.lab.selectedNode?s.sketch.nodes.find(n=>n.id===ui.lab.selectedNode):ui.lab.selectedEdge!==null?s.sketch.edges[ui.lab.selectedEdge]:null;if(!target){notify('Сначала выберите блок или стрелку на схеме.');return;}pushSketchUndo(t);target.label=text.slice(0,60);save();renderSketchOnly(t);sketchMessage('Название сохранено.');break;}
- case 'sketch-connect':ui.lab.tool=ui.lab.tool==='connect'?'move':'connect';ui.lab.connectFrom=null;renderSketchOnly(t);sketchMessage(ui.lab.tool==='connect'?'Выберите первый блок — отправителя.':'Режим перемещения блоков.');break;
- case 'sketch-delete':if(!ui.lab.selectedNode&&ui.lab.selectedEdge===null){notify('Выберите блок или связь.');return;}pushSketchUndo(t);if(ui.lab.selectedNode){const nid=ui.lab.selectedNode;s.sketch.nodes=s.sketch.nodes.filter(n=>n.id!==nid);s.sketch.edges=s.sketch.edges.filter(e=>e.from!==nid&&e.to!==nid);}else s.sketch.edges.splice(ui.lab.selectedEdge,1);ui.lab.selectedNode=null;ui.lab.selectedEdge=null;ui.lab.connectFrom=null;save();renderSketchOnly(t);sketchMessage('Элемент удалён. Можно отменить последнее действие.');break;
- case 'sketch-undo':{const prev=ui.lab.history.pop();if(!prev){notify('В этой сессии нет действий для отмены.');return;}s.sketch=JSON.parse(prev);ui.lab.selectedNode=null;ui.lab.selectedEdge=null;ui.lab.connectFrom=null;save();renderSketchOnly(t);sketchMessage('Последнее изменение схемы отменено.');break;}
- case 'sketch-clear':if(!s.sketch.nodes.length)return;openDialog('Очистить текущую схему?',`<p>Будут удалены блоки и связи задачи «${esc(t.title)}». Текст заметок и зафиксированный снимок останутся.</p>`,`<button class="btn" data-action="close-dialog">Отмена</button><button class="btn btn-danger" data-action="sketch-clear-now" data-id="${id}">Очистить схему</button>`);break;
- case 'sketch-clear-now':pushSketchUndo(t);s.sketch={nodes:[],edges:[]};ui.lab.selectedNode=null;ui.lab.selectedEdge=null;ui.lab.connectFrom=null;save();closeDialog();renderSketchOnly(t);break;
+
  }
 }
 document.addEventListener('change',e=>{

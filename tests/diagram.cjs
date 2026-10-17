@@ -1,0 +1,95 @@
+const fs=require('node:fs');
+const path=require('node:path');
+const os=require('node:os');
+const assert=require('node:assert/strict');
+const {execFileSync}=require('node:child_process');
+let playwright;
+try {playwright=require(process.env.PLAYWRIGHT_MODULE||'playwright');}
+catch {playwright=require('C:/Users/User/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');}
+const root=path.resolve(__dirname,'..'),out=path.join(root,'output','diagram-qa');
+fs.mkdirSync(out,{recursive:true});
+function capture(port){
+  const script=`$all=Get-CimInstance Win32_Process; $ids=@(${process.pid}); do { $next=@($all | Where-Object { $_.ParentProcessId -in $ids -and $_.ProcessId -notin $ids } | Select-Object -ExpandProperty ProcessId); $ids+=$next } while($next.Count); $all | Where-Object { $_.ProcessId -in $ids } | Select-Object ProcessId,ParentProcessId,Name,CommandLine,CreationDate | ConvertTo-Json -Depth 3`;
+  fs.writeFileSync(path.join(out,'processes.json'),execFileSync('powershell.exe',['-NoProfile','-Command',script],{encoding:'utf8'}));
+  fs.writeFileSync(path.join(out,'ports.json'),JSON.stringify([port]));
+}
+(async()=>{
+  const {createAtlasServer}=await import('../server/app.mjs');
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'atlas-diagram-'));
+  const token='diagram-test-'.padEnd(64,'d');
+  const server=await createAtlasServer({token,dataFile:path.join(dir,'workspace.json'),htmlFile:path.join(root,'public/index.html')});
+  let browser,page;
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const port=server.address().port,url=`http://127.0.0.1:${port}`;
+  console.log(`PROCESS ${process.pid} PORT ${port}`);
+  const read=()=>fetch(url+'/api/workspace',{headers:{Authorization:'Bearer '+token}}).then(r=>r.json());
+  try {
+    browser=await playwright.chromium.launch({channel:process.platform==='win32'?'msedge':undefined,headless:true});capture(port);
+    const context=await browser.newContext({viewport:{width:1500,height:1100},acceptDownloads:true});
+    page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+    await page.goto(url+'/#tasks/1/design');
+    await page.getByLabel('Ключ доступа',{exact:true}).fill(token);await page.getByRole('button',{name:'Войти',exact:true}).click();
+    await page.getByText('Синхронизировано',{exact:true}).waitFor();
+    // Import a real legacy-shaped diagram through the application's public workspace bridge.
+    await page.evaluate(()=>{const ws=window.atlasWorkspace.read();ws.candidates[0].profile.tasks['1']={status:'design',checks:[],design:'Старое обоснование',reflection:'',work:'',repo:'',revealed:false,sketch:{nodes:[{id:'legacy-api',label:'Legacy API',x:40,y:60},{id:'legacy-db',label:'Legacy DB',x:400,y:240}],edges:[{from:'legacy-api',to:'legacy-db',label:'SQL legacy'}]},snapshot:{at:'2026-10-17T00:00:00Z',text:'Исходный снимок',sketch:{nodes:[{id:'snapshot-node',label:'Старый снимок',x:640,y:440}],edges:[]}}};window.atlasWorkspace.replace(ws);});
+    await page.locator('[data-node-id="legacy-api"]').waitFor();
+    assert.equal(await page.locator('.sketch-edge-label').filter({hasText:'SQL legacy'}).count(),1);
+    await page.getByRole('button',{name:'Добавить API',exact:true}).click();
+    await page.getByRole('button',{name:'Добавить базу данных',exact:true}).click();
+    assert.equal(await page.locator('[data-node-kind="api"]').count(),1);
+    assert.equal(await page.locator('[data-node-kind="database"]').count(),1);
+    await page.getByRole('button',{name:'Добавить клиент',exact:true}).dragTo(page.locator('.sketch-canvas'),{targetPosition:{x:180,y:300}});
+    assert.equal(await page.locator('[data-node-kind="client"]').count(),1,'Palette supports drag and drop');
+    await page.getByRole('button',{name:'Показать всю схему',exact:true}).click();
+    const first=page.locator('[data-node-kind="api"] [data-port="right"]');
+    const second=page.locator('[data-node-id="legacy-db"] [data-port="left"]');
+    await first.dragTo(second);
+    await page.getByLabel('Подпись связи',{exact:true}).fill('HTTPS / JSON');
+    await page.getByRole('button',{name:'Применить',exact:true}).click();
+    await page.locator('.sketch-edge-label').filter({hasText:'HTTPS / JSON'}).waitFor();
+    const zoomBefore=await page.locator('[data-editor-zoom]').innerText();
+    await page.getByRole('button',{name:'Увеличить масштаб',exact:true}).click();
+    assert.notEqual(await page.locator('[data-editor-zoom]').innerText(),zoomBefore);
+    const node=page.locator('[data-node-kind="api"]');
+    const box=await node.boundingBox();
+    await page.mouse.move(box.x+80,box.y+25);await page.mouse.down();await page.mouse.move(box.x+110,box.y+65,{steps:6});await page.mouse.up();
+    await page.getByRole('button',{name:'Удалить выбранное',exact:true}).click();
+    assert.equal(await page.locator('[data-node-kind="api"]').count(),0);
+    await page.getByRole('button',{name:'Отменить изменение',exact:true}).click();
+    assert.equal(await page.locator('[data-node-kind="api"]').count(),1);
+    await page.getByRole('button',{name:'Показать всю схему',exact:true}).click();
+    await page.getByText('Синхронизировано',{exact:true}).waitFor();
+    const saved=await read(),task=saved.workspace.candidates[0].profile.tasks['1'];
+    assert.equal(task.sketch.nodes.length,5);assert.ok(task.sketch.edges.some(e=>e.label==='HTTPS / JSON'));
+    assert.equal(task.snapshot.text,'Исходный снимок');assert.equal(task.snapshot.sketch.nodes[0].x,640);
+    await page.reload();await page.getByText('Синхронизировано',{exact:true}).waitFor();
+    assert.equal(await page.locator('[data-node-kind="api"]').count(),1);
+    assert.equal(await page.locator('.sketch-edge-label').filter({hasText:'HTTPS / JSON'}).count(),1);
+    for(let i=0;i<6;i++)await page.getByRole('button',{name:'Добавить воркер',exact:true}).click();
+    await page.getByText('Синхронизировано',{exact:true}).waitFor();
+    const large=(await read()).workspace.candidates[0].profile.tasks['1'].sketch;
+    assert.equal(large.nodes.length,11);
+    for(let i=0;i<large.nodes.length;i++)for(let j=i+1;j<large.nodes.length;j++)assert.ok(Math.abs(large.nodes[i].x-large.nodes[j].x)>=220||Math.abs(large.nodes[i].y-large.nodes[j].y)>=58,'Adding more than nine blocks must not stack them');
+    await page.getByRole('button',{name:'Показать всю схему',exact:true}).click();
+    await page.locator('.sketch-canvas').scrollIntoViewIfNeeded();
+    const viewBefore=await page.locator('#sketch-svg').getAttribute('viewBox'),canvas=await page.locator('.sketch-canvas').boundingBox();
+    await page.mouse.move(canvas.x+canvas.width-10,canvas.y+canvas.height-10);await page.mouse.down();await page.mouse.move(canvas.x+canvas.width-70,canvas.y+canvas.height-45,{steps:5});await page.mouse.up();
+    assert.notEqual(await page.locator('#sketch-svg').getAttribute('viewBox'),viewBefore,'Empty canvas supports panning');
+    await page.getByRole('button',{name:'Полноэкранный режим',exact:true}).click();
+    await page.waitForFunction(()=>document.fullscreenElement?.id==='sketch-editor'||document.querySelector('#sketch-editor').classList.contains('sketch-expanded'));
+    await page.getByRole('button',{name:'Полноэкранный режим',exact:true}).click();
+    await page.getByRole('button',{name:'Показать всю схему',exact:true}).click();
+    const downloadEvent=page.waitForEvent('download');await page.getByRole('button',{name:'SVG',exact:true}).click();
+    const download=await downloadEvent,svgFile=path.join(out,'diagram.svg');await download.saveAs(svgFile);
+    const svg=fs.readFileSync(svgFile,'utf8');assert.ok(svg.includes('HTTPS / JSON'));assert.ok(svg.includes('Legacy API'));
+    await page.locator('#sketch-editor').screenshot({path:path.join(out,'editor-desktop.png')});
+    await page.setViewportSize({width:390,height:844});
+    await page.getByRole('button',{name:'Показать всю схему',exact:true}).click();
+    await page.locator('#sketch-editor').scrollIntoViewIfNeeded();
+    await page.locator('#sketch-editor').screenshot({path:path.join(out,'editor-mobile.png')});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+    assert.deepEqual(errors,[]);
+    console.log('PASS legacy data, palette click/drop, dragged connection, visible label, zoomed drag, undo, 11 non-overlapping nodes, pan, fullscreen, server persistence, reload, SVG and mobile width');
+  } catch(error){if(page)await page.screenshot({path:path.join(out,'failure.png'),fullPage:false});throw error;}
+  finally {capture(port);if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(dir,{recursive:true,force:true});}
+})().catch(error=>{console.error(error);process.exitCode=1;});

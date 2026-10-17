@@ -11,6 +11,7 @@
     "package": "node scripts/package.mjs",
     "test": "node --test tests/server.test.mjs",
     "test:browser": "node tests/browser.cjs",
+    "test:diagram": "node tests/diagram.cjs",
     "deploy:pages": "node scripts/deploy-pages.mjs"
   }
 }

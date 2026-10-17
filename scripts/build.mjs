@@ -6,12 +6,17 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const source = resolve(root, 'backend-atlas-single-candidate.html');
 let html = await readFile(source, 'utf8');
 const sync = await readFile(resolve(root, 'client/sync.js'), 'utf8');
+const editor = await readFile(resolve(root, 'client/diagram-editor.js'), 'utf8');
+const editorCss = await readFile(resolve(root, 'client/diagram-editor.css'), 'utf8');
 const marker = /<!-- atlas-server-sync:start -->[\s\S]*?<!-- atlas-server-sync:end -->\s*/;
 html = html.replace(marker, '');
+html = html.replace(/<!-- atlas-diagram-editor:start -->[\s\S]*?<!-- atlas-diagram-editor:end -->\s*/, '');
+html = html.replace(/<!-- atlas-diagram-styles:start -->[\s\S]*?<!-- atlas-diagram-styles:end -->\s*/, '');
 const firstCodeScript = html.indexOf('<script>');
 if (firstCodeScript < 0) throw Error('Не найдена точка подключения атласа.');
-const block = '<!-- atlas-server-sync:start -->\n<script>\n' + sync.replace(/<\/script/gi, '<\\/script') + '\n</script>\n<!-- atlas-server-sync:end -->\n';
+const block = '<!-- atlas-diagram-editor:start -->\n<script>\n' + editor.replace(/<\/script/gi, '<\\/script') + '\n</script>\n<!-- atlas-diagram-editor:end -->\n<!-- atlas-server-sync:start -->\n<script>\n' + sync.replace(/<\/script/gi, '<\\/script') + '\n</script>\n<!-- atlas-server-sync:end -->\n';
 html = html.slice(0, firstCodeScript) + block + html.slice(firstCodeScript);
+html = html.replace('</head>', '<!-- atlas-diagram-styles:start -->\n<style>\n' + editorCss + '\n</style>\n<!-- atlas-diagram-styles:end -->\n</head>');
 // Keep the downloadable source fully standalone, with its inline sync client.
 await writeFile(source, html, 'utf8');
 // A public deployment must never publish a candidate snapshot embedded in a saved HTML.

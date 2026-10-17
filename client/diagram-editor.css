@@ -1,0 +1,37 @@
+.sketch-editor{border:1px solid var(--line,#e3e6ef);border-radius:12px;overflow:hidden;background:#fff;min-width:0;margin:16px 0 6px}
+.sketch-editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px;background:#fafaff;border-bottom:1px solid #e7e5f1}
+.sketch-tools{display:flex;align-items:center;gap:4px;padding-right:8px;border-right:1px solid #e5e2ef}
+.sketch-tools:last-child{border:0;padding-right:0}.sketch-view-tools{margin-left:auto;flex-wrap:wrap}
+.sketch-editor .btn{font-size:11px;padding:7px 10px;min-height:34px;white-space:nowrap}
+.sketch-editor .btn[aria-pressed=true]{background:var(--accent-soft,#f0edff);color:var(--accent,#6b55ce);border-color:#d4caf4}
+.sketch-editor .btn:disabled{opacity:.4;cursor:default}
+.sketch-editor [data-editor-zoom]{font-size:11px;color:#7e7890;min-width:39px;text-align:center;font-variant-numeric:tabular-nums}
+.sketch-editor-layout{display:grid;grid-template-columns:156px minmax(0,1fr);min-width:0}
+.sketch-palette{padding:16px 10px;background:#fdfdff;border-right:1px solid #e9e6f2}
+.sketch-palette>strong{display:block;font-size:9px;color:#9690a6;letter-spacing:1.1px;margin:0 5px 7px}
+.sketch-palette>p{font-size:10px!important;line-height:1.65!important;color:#9b95aa!important;margin:0 5px 13px!important}
+.sketch-palette-item{display:block;width:100%;text-align:left;border:1px solid #e6e5ed;border-left:3px solid var(--component-color);border-radius:7px;padding:9px 9px;background:white;margin-bottom:6px;cursor:grab;color:#434459;min-height:43px}
+.sketch-palette-item:hover{border-color:var(--component-color);background:#fafaff}.sketch-palette-item:active{cursor:grabbing}
+.sketch-palette-item span{display:block;font-size:11px;font-weight:600}.sketch-palette-item small{display:block;margin-top:4px;color:#a09aaf;font-size:9px;line-height:1.4}
+.sketch-stage{min-width:0;min-height:0;display:flex;flex-direction:column}
+.sketch-canvas{position:relative;min-width:0;height:470px;overflow:hidden;background:#fbfcff;touch-action:none;outline-offset:-3px}
+.sketch-canvas[data-mode=pan]{cursor:grab}.sketch-canvas[data-mode=pan]:active{cursor:grabbing}
+.sketch-svg{display:block;width:100%;height:100%;min-width:0;user-select:none;touch-action:none;overflow:hidden;fill:none;stroke:none}
+.sketch-node{cursor:grab;outline:none}.sketch-node-body{fill:white;stroke:#d8dce9;stroke-width:1.3;filter:drop-shadow(0 2px 2px #38315a06)}
+.sketch-node.is-selected .sketch-node-body,.sketch-node:focus .sketch-node-body{stroke:var(--accent,#6b55ce);stroke-width:2;fill:#faf8ff}
+.sketch-node-title{font:600 12px Inter,Arial,sans-serif;fill:#33384e}.sketch-node-kind{font:10px Inter,Arial,sans-serif}
+.sketch-port{fill:white;stroke:#b2a5da;stroke-width:1.5;cursor:crosshair;outline:none}.sketch-port:hover,.sketch-port:focus{fill:#6b55ce;stroke:#6b55ce;r:8px}
+.sketch-link{fill:none;stroke:#9b93bc;stroke-width:1.6;pointer-events:none}.sketch-link.is-selected{stroke:#6b55ce;stroke-width:2.3}
+.sketch-link-hit{fill:none;stroke:transparent;stroke-width:18;cursor:pointer}.sketch-label-bg{fill:white;stroke:#e6e2f1;cursor:pointer}
+.sketch-edge-label{font:11px Inter,Arial,sans-serif;fill:#63597b;cursor:pointer}.sketch-edge-label.is-placeholder{fill:#a69db9;font-size:10px}
+.sketch-preview{stroke:#6b55ce;stroke-dasharray:6 4}
+.sketch-empty-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:30px;pointer-events:none}
+.sketch-empty-state[hidden]{display:none}.sketch-empty-state strong{font-size:15px;color:#777088;font-weight:550}.sketch-empty-state span{font-size:12px;line-height:1.8;color:#a69eb6}
+.sketch-context{border-top:1px solid #e8e5f2;min-height:80px;padding:13px 14px;background:white;display:flex;align-items:center;flex-shrink:0}
+.sketch-context-hint{font-size:10px;color:#9d96ac;line-height:1.8}.sketch-edit-form{display:flex;align-items:flex-end;gap:8px;width:100%;flex-wrap:wrap}.sketch-edit-form .x-field{flex:1;min-width:130px}.sketch-edit-form input{width:100%;font-size:12px}
+.sketch-editor-status{border-top:1px solid #e9e6f2;margin:0!important;padding:10px 14px;font-size:10px!important;color:#9a91ab!important;line-height:1.6!important}
+.sketch-editor:fullscreen,.sketch-editor.sketch-expanded{background:white;width:100%;height:100%;border:0;border-radius:0;margin:0;display:flex;flex-direction:column;padding:16px}
+.sketch-editor.sketch-expanded{position:fixed;inset:0;z-index:1000}.sketch-editor:fullscreen .sketch-editor-layout,.sketch-expanded .sketch-editor-layout{flex:1;min-height:0}.sketch-editor:fullscreen .sketch-stage,.sketch-expanded .sketch-stage{height:100%;min-height:0}.sketch-editor:fullscreen .sketch-canvas,.sketch-expanded .sketch-canvas{height:0;flex:1 1 0;min-height:0}
+@media(max-width:1200px){.sketch-editor-layout{grid-template-columns:130px minmax(0,1fr)}.sketch-view-tools{margin-left:0}.sketch-palette-item small{display:none}.sketch-canvas{height:430px}}
+@media(max-width:700px){.sketch-editor-layout{grid-template-columns:minmax(0,1fr)}.sketch-palette{border-right:0;border-bottom:1px solid #e9e6f2;display:flex;gap:6px;overflow-x:auto;padding:10px}.sketch-palette>strong,.sketch-palette>p{display:none}.sketch-palette-item{width:auto;flex:0 0 auto;min-height:36px;margin:0;padding:8px 10px}.sketch-palette-item span{font-size:10px}.sketch-canvas{height:360px}.sketch-editor-toolbar{gap:6px;padding:8px}.sketch-tools{gap:3px;padding-right:5px}.sketch-editor .btn{font-size:10px;padding:7px 8px;min-height:36px}.sketch-edit-form input{font-size:16px}.sketch-context{padding:12px}.sketch-context-hint{font-size:10px}.sketch-editor:fullscreen .sketch-editor-layout,.sketch-expanded .sketch-editor-layout{display:flex;flex-direction:column}.sketch-editor:fullscreen .sketch-stage,.sketch-expanded .sketch-stage{flex:1;min-height:0}}
+@media print{.sketch-palette,.sketch-editor-toolbar,.sketch-context,.sketch-editor-status{display:none}.sketch-editor-layout{display:block}.sketch-canvas{height:450px}}
