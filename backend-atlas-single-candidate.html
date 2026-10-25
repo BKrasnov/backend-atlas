@@ -6,6 +6,91 @@
 <meta name="color-scheme" content="light">
 <meta name="description" content="Backend Atlas: личный атлас одного кандидата. Технологии, учебный план, вопросы, интервью и 31 практическая задача. Сохранение в автономный HTML вместе с данными.">
 <title>Backend Atlas — один кандидат</title>
+<!-- atlas-learning-calendar:start -->
+<script>
+/* Fixed learning dates are derived from the program; only completion is stored. */
+(() => {
+  'use strict';
+  const START='2026-10-26',DAY=86400000;
+  const TECHNOLOGY_WEEKS=[
+    ['api-1','api-2','api-3','data-1','infra-3','infra-4','testing-1','testing-2'],
+    ['storage-1','storage-2','storage-3','cloud-1','infra-5'],
+    ['api-4','api-5','testing-4','observability-4'],
+    ['data-4','testing-5','observability-1'],
+    ['messaging-1','messaging-4'],
+    ['api-7','api-8','infra-8'],
+    ['messaging-2','messaging-3'],
+    ['data-2','testing-3','cicd-2'],
+    ['data-3','infra-1'],
+    ['security-3','infra-2','observability-6'],
+    ['security-5','cicd-1','observability-3'],
+    ['data-6','data-7','messaging-6'],
+    ['messaging-5','infra-6','infra-7','cicd-3','observability-5'],
+    ['data-5','observability-2'],
+    ['api-6','cloud-2'],
+    ['testing-6','cicd-5','cicd-6'],
+    ['security-1','security-2','security-4','cloud-3'],
+    ['cicd-4']
+  ];
+  const techWeeks=new Map(TECHNOLOGY_WEEKS.flatMap((ids,i)=>ids.map(id=>[id,i+1])));
+  const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const number=date=>Date.parse(date+'T00:00:00Z')/DAY;
+  const iso=number=>new Date(number*DAY).toISOString().slice(0,10);
+  function localDay(date=new Date()){return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');}
+  function weekRange(week){const start=number(START)+(week-1)*7;return {start:iso(start),due:iso(start+6)};}
+  const technologyWeek=id=>techWeeks.get(id)||18;
+  function status(due,done,today=localDay()){return done?'done':today>due?'overdue':today===due?'today':'scheduled';}
+  const format=date=>date.split('-').reverse().join('.');
+  function monthTitle(month){return new Intl.DateTimeFormat('ru-RU',{month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(month+'-01T00:00:00Z'));}
+  function shiftMonth(month,delta){const [year,m]=month.split('-').map(Number);return new Date(Date.UTC(year,m-1+delta,1)).toISOString().slice(0,7);}
+  function monthCells(month){
+    const first=number(month+'-01'),day=(new Date(first*DAY).getUTCDay()+6)%7,next=number(shiftMonth(month,1)+'-01');
+    const count=Math.ceil((next-first+day)/7)*7;
+    return Array.from({length:count},(_,i)=>{const date=iso(first-day+i);return {date,inMonth:date.startsWith(month)};});
+  }
+  function schedule({tasks,technologies,profile={},today=localDay()}){
+    const learned=new Set(profile.calendar?.learnedTech||[]),pool=tasks.filter(t=>!t.project);
+    const weeks=pool.map((t,i)=>{
+      const range=weekRange(i+1),done=profile.tasks?.[t.id]?.status==='done';
+      return {number:i+1,...range,current:today>=range.start&&today<=range.due,task:{...t,done,state:status(range.due,done,today)},technologies:[]};
+    });
+    for(const t of technologies){
+      const week=weeks[Math.min(technologyWeek(t.id),weeks.length)-1];if(!week)continue;
+      const done=learned.has(t.id);week.technologies.push({...t,done,overdue:!done&&today>week.due});
+    }
+    for(const w of weeks){w.overdue=w.task.state==='overdue'||w.technologies.some(t=>t.overdue);w.complete=w.task.done&&w.technologies.every(t=>t.done);}
+    const allTech=weeks.flatMap(w=>w.technologies);
+    return {today,weeks,overdueTasks:weeks.filter(w=>w.task.state==='overdue').length,overdueTech:allTech.filter(t=>t.overdue).length,doneTasks:weeks.filter(w=>w.task.done).length,doneTech:allTech.filter(t=>t.done).length,totalTech:allTech.length};
+  }
+  function deadlineBadge({due,done=false,today=localDay(),href,doneLabel='Готово'}){
+    const state=status(due,done,today),days=number(today)-number(due);
+    const text=state==='done'?doneLabel+' · '+format(due):state==='overdue'?'Просрочено на '+days+' дн. · '+format(due):state==='today'?'Срок сегодня · '+format(due):'До '+format(due);
+    return `<a class="cal-deadline is-${state}" data-deadline-state="${state}" href="${esc(href)}">${esc(text)}</a>`;
+  }
+  function techControl(t,{due,done,today=localDay(),week}){
+    return `<div class="cal-tech-row ${!done&&today>due?'is-overdue':''}"><label class="cal-learn"><input type="checkbox" id="calendar-tech-${esc(t.id)}" data-calendar-learn="${esc(t.id)}" aria-label="Изучено: ${esc(t.name)}" ${done?'checked':''}><span>${esc(t.name)}</span><small>${done?'Изучено':'Изучить'}</small></label>${deadlineBadge({due,done,today,href:'#calendar/'+week,doneLabel:'Изучено'})}</div>`;
+  }
+  function render(model,{month,filter='all',openWeeks=new Set()}={}){
+    const weeks=model.weeks,byDate=new Map(weeks.map(w=>[w.due,w])),next=weeks.find(w=>!w.complete)||weeks.at(-1);
+    const shown=weeks.filter(w=>filter==='overdue'?w.overdue:filter==='current'?w.current:filter==='done'?w.complete:true);
+    const stats=[['all','Все недели',weeks.length],['current','На этой неделе',weeks.filter(w=>w.current).length],['overdue','Просрочено',weeks.filter(w=>w.overdue).length],['done','Выполнено',weeks.filter(w=>w.complete).length]];
+    const taskLink=w=>`#tasks/${w.task.id}/brief`;
+    return `${model.overdueTasks||model.overdueTech?`<div class="cal-alert" role="status"><strong>Требуют внимания: ${model.overdueTasks} заданий и ${model.overdueTech} технологий</strong><span>Сроки прошли. Завершите оставшееся; следующие недели сохраняют свои даты.</span><button class="btn" data-cal-filter="overdue">Показать просроченное</button></div>`:''}
+    <div class="cal-layout"><section class="cal-month-panel" aria-label="Календарь по месяцам"><div class="cal-month-head"><h2 id="calendar-month-title">${esc(monthTitle(month))}</h2><div class="cal-month-actions"><button class="btn" data-cal-month="-1" aria-label="Предыдущий месяц">‹</button><button class="btn" data-cal-today>Сегодня</button><button class="btn" data-cal-month="1" aria-label="Следующий месяц">›</button></div></div>
+    <div class="cal-month-grid" role="group" aria-labelledby="calendar-month-title">${['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d=>`<span class="cal-weekday">${d}</span>`).join('')}${monthCells(month).map(cell=>{
+      const w=byDate.get(cell.date),classes=`cal-day ${cell.inMonth?'':'is-outside'} ${cell.date===model.today?'is-today':''} ${w?(w.overdue?'is-overdue':w.complete?'is-done':'has-deadline'):''}`;
+      const inner=`<time datetime="${cell.date}">${Number(cell.date.slice(-2))}</time>${cell.date===START?'<small class="cal-start">Старт</small>':''}${w?`<span class="cal-day-event">Неделя ${w.number}<b>${esc(w.task.title)}</b><small>1 задание · ${w.technologies.length} технологий</small></span>`:''}`;
+      return w?`<button class="${classes}" data-cal-week="${w.number}" aria-label="Срок ${format(cell.date)}: ${esc(w.task.title)}; ${w.technologies.length} технологий${w.overdue?'; есть просрочка':''}">${inner}</button>`:`<div class="${classes}">${inner}</div>`;
+    }).join('')}</div><p class="cal-month-note"><span class="cal-legend-dot"></span>Срок — воскресенье включительно. <span class="cal-legend-dot overdue"></span>Красным отмечено невыполненное после срока.</p></section>
+    <aside class="cal-focus" aria-label="Ближайшая неделя"><div class="cal-eyebrow">${next.complete?'ПРОГРАММА ЗАВЕРШЕНА':'БЛИЖАЙШАЯ НЕЗАКРЫТАЯ НЕДЕЛЯ'}</div><strong class="cal-focus-number">${next.number}<small> / ${weeks.length}</small></strong><p>${format(next.start)} — ${format(next.due)}</p><h2>${esc(next.task.title)}</h2>${deadlineBadge({due:next.due,done:next.complete,today:model.today,href:'#calendar/'+next.number})}<a class="btn btn-primary" href="${taskLink(next)}">Открыть задание</a><p class="cal-focus-note">Одна задача в неделю. Технологии отмечаются отдельно; выполнение задачи не ставит отметки за вас.</p><div class="cal-program-range">СТАРТ <b>${format(START)}</b><br>ФИНИШ <b>${format(weeks.at(-1).due)}</b></div></aside></div>
+    <section class="cal-plan" aria-label="План по неделям"><div class="cal-plan-head"><div><h2>Ваш план по неделям</h2><p>Технологии сгруппированы по практике. Любую можно изучить и отметить заранее.</p></div><div class="cal-filters" role="group" aria-label="Фильтр недель">${stats.map(([id,label,count])=>`<button class="btn ${filter===id?'active':''}" data-cal-filter="${id}" aria-pressed="${filter===id}">${label} <span>${count}</span></button>`).join('')}</div></div>
+    ${shown.length?shown.map(w=>`<details class="cal-week ${w.overdue?'is-overdue':''} ${w.current?'is-current':''}" id="calendar-week-${w.number}" data-calendar-week="${w.number}" ${openWeeks.has(w.number)?'open':''}><summary><span class="cal-week-number">${String(w.number).padStart(2,'0')}</span><span class="cal-week-title"><strong>${esc(w.task.title)}</strong><small>${format(w.start)} — ${format(w.due)}${w.current?' · Эта неделя':''}</small></span><span class="cal-week-progress">${w.task.done?'Задание готово':'Задание не завершено'}<small>${w.technologies.filter(t=>t.done).length} / ${w.technologies.length} технологий</small></span><span class="cal-week-state ${w.overdue?'overdue':w.complete?'done':''}">${w.overdue?'Есть просрочка':w.complete?'Выполнено':w.current?'В работе':'По плану'}</span></summary><div class="cal-week-body"><div class="cal-task-line"><a class="cal-task-title" href="${taskLink(w)}">${esc(w.task.title)}</a><span data-calendar-task-state="${w.task.state}">${deadlineBadge({due:w.due,done:w.task.done,today:model.today,href:taskLink(w)})}</span></div><p class="cal-task-help">Завершите задание через критерии приёмки на этапе «Проверка».</p><h3>Изучить к ${format(w.due)}</h3>${w.technologies.length?w.technologies.map(t=>techControl(t,{due:w.due,done:t.done,today:model.today,week:w.number})).join(''):'<p class="cal-task-help">Новых технологий на этой неделе нет — закрепляйте изученное в проекте.</p>'}<a class="cal-topics-link" href="${taskLink(w)}">Условие, связанные темы и материалы задания →</a></div></details>`).join(''):'<div class="cal-empty">На этом фильтре пока нет недель.</div>'}</section>`;
+  }
+  window.AtlasLearningCalendar=Object.freeze({START,localDay,weekRange,technologyWeek,status,format,monthTitle,shiftMonth,monthCells,schedule,deadlineBadge,techControl,render});
+})();
+
+</script>
+<!-- atlas-learning-calendar:end -->
 <!-- atlas-diagram-editor:start -->
 <script>
 /* Architecture editor: the stored graph is separate from its temporary camera and selection. */
@@ -688,6 +773,26 @@ html[data-atlas-access="locked"] .app,html[data-atlas-access="locked"] .sidebar,
 
 </style>
 <!-- atlas-diagram-styles:end -->
+<!-- atlas-calendar-styles:start -->
+<style>
+.cal-layout{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:20px;margin-bottom:28px;align-items:stretch}
+.cal-month-panel,.cal-focus{border:1px solid var(--line);border-radius:12px;background:white;padding:22px;min-width:0}
+.cal-month-head,.cal-plan-head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:18px}.cal-month-head h2{font-size:19px;text-transform:capitalize;letter-spacing:-.3px}.cal-month-actions{display:flex;gap:5px}.cal-month-actions .btn{padding:7px 11px;min-width:34px}
+.cal-month-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}.cal-weekday{font-size:10px;color:var(--muted);text-align:center;padding:8px 0 10px}
+.cal-day{border:1px solid #edf0f5;border-radius:7px;padding:9px;min-width:0;min-height:96px;background:#fff;text-align:left;position:relative;color:#525d74}.cal-day time{font-size:11px;font-variant-numeric:tabular-nums}.cal-day.is-outside{background:#fafbfe;color:#a4aabb}.cal-day.has-deadline{background:#f6f3ff;border-color:#e0d8fb;color:#6858b6}.cal-day.is-overdue{background:#fff3f4;border-color:#f0c5cd;color:#b34b62}.cal-day.is-done{background:#f0faf5;border-color:#cde8d9;color:#328266}.cal-day.is-today time{background:var(--accent);color:white;border-radius:5px;padding:3px 5px}.cal-day[data-cal-week]:hover{border-color:var(--accent);box-shadow:0 2px 8px #6258d615}.cal-day:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.cal-start{display:block;color:var(--accent);font-size:9px;margin-top:10px}.cal-day-event{display:block;font-size:9px;margin-top:8px;line-height:1.5}.cal-day-event b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:9px;font-weight:600;margin:4px 0}.cal-day-event small{display:block;font-size:8px;line-height:1.5;color:inherit;opacity:.8}
+.cal-month-note{font-size:10px;color:var(--muted);line-height:1.8;margin-top:16px}.cal-legend-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px}.cal-legend-dot.overdue{background:var(--red);margin-left:8px}
+.cal-focus{background:#f9f7ff;display:flex;flex-direction:column;align-items:flex-start}.cal-eyebrow{font-size:9px;letter-spacing:1.1px;color:#9281b4;line-height:1.7}.cal-focus-number{font-size:50px;font-weight:650;letter-spacing:-2px;line-height:1.2;margin-top:22px;color:#6656ad}.cal-focus-number small{font-size:18px;color:#b5accb;letter-spacing:-.5px;font-weight:400}.cal-focus p{font-size:11px;color:var(--muted);line-height:1.8;margin:8px 0 16px}.cal-focus h2{font-size:17px;line-height:1.5;margin-bottom:15px}.cal-focus>.btn{margin-top:18px}.cal-focus .cal-focus-note{font-size:10px;margin-top:19px}.cal-program-range{border-top:1px solid #e5dff2;margin-top:auto;padding-top:16px;font-size:9px;color:#a098b1;line-height:2.2;letter-spacing:.8px;width:100%}.cal-program-range b{color:#80728e;font-weight:500;letter-spacing:0;margin-left:8px}
+.cal-alert{display:flex;gap:8px 16px;align-items:center;flex-wrap:wrap;border:1px solid #f0cdd3;background:#fff3f4;padding:15px 18px;border-radius:10px;color:#a14c61;margin-bottom:20px;font-size:11px;line-height:1.7}.cal-alert strong{font-size:12px}.cal-alert .btn{margin-left:auto;color:#a14c61;border-color:#edc8d1;font-size:10px}.cal-alert span{flex:1;min-width:180px}
+.cal-plan-head h2{font-size:19px;margin-bottom:7px}.cal-plan-head p{font-size:11px;color:var(--muted);line-height:1.8}.cal-filters{display:flex;gap:5px;flex-wrap:wrap}.cal-filters .btn{font-size:10px;padding:7px 10px;color:var(--muted)}.cal-filters .btn.active{color:var(--accent);border-color:#d9d0f7;background:var(--accent-soft)}.cal-filters .btn span{opacity:.6}
+.cal-week{background:white;border:1px solid var(--line);border-radius:10px;margin-bottom:10px;scroll-margin-top:95px;overflow:clip}.cal-week.is-overdue{border-left:3px solid #d87d90}.cal-week.is-current{border-color:#b9acec;border-left:3px solid var(--accent)}.cal-week>summary{display:flex;align-items:center;gap:15px;padding:18px;cursor:pointer;list-style:none}.cal-week>summary::-webkit-details-marker{display:none}.cal-week>summary:after{content:'+';font-size:18px;color:#aaa2bb;margin-left:3px}.cal-week[open]>summary:after{content:'−'}.cal-week-number{font:12px ui-monospace,Consolas,monospace;color:#9c8fbb;background:#f5f2fc;border-radius:7px;min-width:33px;height:33px;display:grid;place-items:center}.cal-week-title{flex:1;min-width:0}.cal-week-title strong{display:block;font-size:12px;line-height:1.65;font-weight:600}.cal-week-title small,.cal-week-progress small{display:block;font-size:10px;color:var(--muted);line-height:1.8;margin-top:3px}.cal-week-progress{font-size:10px;color:#7f8499;min-width:125px}.cal-week-state{font-size:9px;color:#9385af;background:#f5f2fc;border-radius:5px;padding:4px 7px;white-space:nowrap}.cal-week-state.overdue{background:var(--red-soft);color:var(--red)}.cal-week-state.done{background:var(--green-soft);color:var(--green)}
+.cal-week-body{border-top:1px solid var(--line);padding:18px 22px 20px}.cal-task-line{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}.cal-task-title{font-size:13px;color:var(--accent);font-weight:600}.cal-task-help{font-size:10px;color:var(--muted);margin:9px 0 19px;line-height:1.8}.cal-week-body h3{font-size:11px;color:#7c728e;line-height:1.6;margin:20px 0 8px}.cal-tech-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid #f0eef7;flex-wrap:wrap}.cal-learn{display:flex;align-items:center;gap:9px;font-size:11px;cursor:pointer;line-height:1.6;min-width:0}.cal-learn input{width:15px;height:15px;accent-color:var(--accent);flex-shrink:0}.cal-learn span{overflow-wrap:anywhere}.cal-learn small{font-size:9px;color:#a19aac}.cal-topics-link{display:inline-block;font-size:10px;margin-top:17px;color:var(--accent);line-height:1.7}
+.cal-deadline{display:inline-flex;align-items:center;font-size:10px;line-height:1.6;color:#9183ad;background:#f6f3fc;border:1px solid #eae3f6;border-radius:5px;padding:3px 7px;text-decoration:none!important;font-variant-numeric:tabular-nums}.cal-deadline.is-overdue{color:#ad5067;border-color:#f0cbd4;background:#fff2f4}.cal-deadline.is-done{color:#3e8c71;border-color:#d9ede3;background:#f2faf6}.cal-deadline.is-today{color:#a27826;background:#fff8e8;border-color:#efe0bd}.cal-deadline:hover{filter:brightness(.97)}.lab-card>.cal-deadline{align-self:flex-start;margin:0 20px 10px}.lab-aside .cal-deadline{margin:4px 0 12px}.cal-tech-study{margin:0 22px 12px}.cal-tech-study .cal-tech-row{border:0;padding:7px 0}.cal-tech-study .cal-learn small{display:none}.cal-empty{padding:30px;border:1px dashed var(--line);border-radius:10px;text-align:center;color:var(--muted);font-size:12px}.nav-number.cal-nav-overdue{color:#ffc1cc;background:#c7617d35}
+@media(max-width:1200px){.cal-layout{grid-template-columns:minmax(0,1fr)}.cal-focus{display:none}.cal-day{min-height:95px}.cal-week-progress{min-width:110px}}
+@media(max-width:700px){.cal-month-panel{padding:14px 10px}.cal-month-head{gap:8px;margin-bottom:10px}.cal-month-head h2{font-size:17px}.cal-month-actions .btn{padding:7px 9px;font-size:10px}.cal-month-grid{gap:3px}.cal-day{min-height:66px;padding:6px 4px}.cal-day-event{font-size:8px;margin-top:7px}.cal-day-event b,.cal-day-event small{display:none}.cal-start{font-size:8px}.cal-month-note{font-size:9px}.cal-week>summary{padding:13px 10px;gap:9px;flex-wrap:wrap}.cal-week-title strong{font-size:11px}.cal-week-title small{font-size:9px}.cal-week-number{min-width:27px;height:30px;font-size:10px}.cal-week-progress{display:none}.cal-week-state{font-size:8px;padding:4px}.cal-week-body{padding:15px}.cal-task-line{gap:8px}.cal-task-title{font-size:12px}.cal-tech-row{gap:7px}.cal-learn small{display:none}.cal-tech-study{margin-left:16px;margin-right:16px}.cal-alert{padding:12px;gap:8px}.cal-alert .btn{margin-left:0}.cal-plan-head h2{font-size:17px}.cal-filters .btn{font-size:9px;padding:7px 8px}}
+
+</style>
+<!-- atlas-calendar-styles:end -->
 </head>
 <body>
 <a class="skip" href="#main-content">Перейти к содержимому</a>
@@ -7651,7 +7756,7 @@ const titles = {technologies:'Технологии',topics:'План обуче�
 const techItems=DATA.techGroups.flatMap(g=>g.items), topicItems=DATA.topicGroups.flatMap(g=>g.items);
 const techIds=new Set(techItems.map(x=>x.id)), topicIds=new Set(topicItems.map(x=>String(x.id))), questionIds=new Set(DATA.questions.map(x=>String(x.id)));
 const STORAGE_KEY='backend-atlas-profile-v1';
-const defaultState=()=>({version:1,candidate:'',tech:{},techReview:{},techComments:{},topics:{},scores:{},notes:{},favorites:[],tasks:{},updatedAt:null});
+const defaultState=()=>({version:1,candidate:'',tech:{},techReview:{},techComments:{},topics:{},scores:{},notes:{},favorites:[],tasks:{},calendar:{learnedTech:[]},updatedAt:null});
 const TECH_VALUES=['yes','no','heard'];
 const TOPIC_VALUES=['todo','plan','learning','done'];
 const TECH_LABEL={yes:'Да',no:'Нет',heard:'Слышал'};
@@ -7681,6 +7786,9 @@ function validateState(raw){
  if(raw.favorites!==undefined && (!Array.isArray(raw.favorites)||raw.favorites.length>DATA.questions.length||raw.favorites.some(id=>!questionIds.has(String(id)))))throw new Error('Некорректное избранное.');
  clean.favorites=[...new Set((raw.favorites||[]).map(Number))];
  clean.tasks=validTasks(raw.tasks);
+ const cal=checkMap(raw.calendar,'Календарь'),learned=cal.learnedTech===undefined?[]:cal.learnedTech;
+ if(!Array.isArray(learned)||learned.length>techItems.length||learned.some(id=>typeof id!=='string'||!techIds.has(id)))throw new Error('Некорректные отметки календаря.');
+ clean.calendar={learnedTech:[...new Set(learned)]};
  clean.updatedAt=typeof raw.updatedAt==='string'?raw.updatedAt:null;
  return clean;
 }
@@ -7907,6 +8015,11 @@ function labList(items,ordered=false){const tag=ordered?'ol':'ul';return `<${tag
 function labChecks(t,items,prefix){const s=taskState(t.id);return `<div class="lab-check-list">${items.map((text,i)=>{const key=prefix+'-'+i,checked=s.checks.includes(key);return `<label class="lab-check ${checked?'checked':''}" for="lab-check-${t.id}-${key}"><input type="checkbox" id="lab-check-${t.id}-${key}" data-lab-check="${key}" data-id="${t.id}" ${checked?'checked':''}><span><b>${prefix==='test'?'ПРОВЕРКА':prefix==='build'?'ШАГ':'АРТЕФАКТ'} ${String(i+1).padStart(2,'0')}</b>${esc(text)}</span></label>`;}).join('')}</div>`;}
 function labCode(code){return `<pre class="lab-code"><code>${esc(code)}</code></pre>`;}
 function sourceLinks(t){return t.sources.map(k=>{const s=LAB.sources[k];return `<a class="lab-source" href="${esc(s[1])}" target="_blank" rel="noopener noreferrer">${icon('arrow-up-right')}<span>${esc(s[0])}</span></a>`;}).join('');}
+function calendarTaskBadge(t){
+ if(t.project)return '';const week=LAB.tasks.filter(x=>!x.project).findIndex(x=>x.id===t.id)+1;
+ return AtlasLearningCalendar.deadlineBadge({due:AtlasLearningCalendar.weekRange(week).due,done:taskStatus(t.id)==='done',href:'#calendar/'+week});
+}
+function calendarTaskLate(t){return !t.project&&taskStatus(t.id)!=='done'&&AtlasLearningCalendar.localDay()>AtlasLearningCalendar.weekRange(LAB.tasks.filter(x=>!x.project).findIndex(x=>x.id===t.id)+1).due;}
 function renderTasks(){
  if(ui.lab.taskId){renderTaskDetail();return;}
  const pool=LAB.tasks.filter(t=>!t.project),total=pool.length,done=pool.filter(t=>taskStatus(t.id)==='done').length,active=pool.filter(t=>!['todo','done'].includes(taskStatus(t.id))).length;
@@ -7916,11 +8029,11 @@ function renderTasks(){
  `<div class="lab-intro"><div><h2>Не просто прочитать.<br>Спроектировать и собрать.</h2><p>Нарисуйте свою архитектуру на встроенной доске, зафиксируйте решение и только потом откройте разбор. Язык и фреймворк выбираете вы.</p><div class="lab-path"><span>Условие</span><i></i><span>Своя схема</span><i></i><span>Разбор</span><i></i><span>Код + тесты</span></div></div><div class="lab-stack"><div class="lab-stack-row">${icon('cloud')}S3 и gRPC<strong>Освоить инструмент</strong></div><div class="lab-stack-row">${icon('layers')}Промокоды и очереди<strong>Защитить данные</strong></div><div class="lab-stack-row">${icon('sparkles')}Пиццерия и AI-аналитик<strong>Связать систему</strong></div></div></div>`;
  $('#category-filter').innerHTML=options(LAB_LEVELS,'Все уровни');
  $('#search-action').innerHTML=`<button class="btn" data-action="lab-export-index">${icon('download')}Скачать задания</button>`;
- $('#view-toolbar').innerHTML=`<div class="view-toolbar"><div class="filter-list">${filterBtn('all','Все',total)}${Object.entries(LAB_STATUS).map(([v,label])=>filterBtn(v,label,pool.filter(t=>taskStatus(t.id)===v).length)).join('')}</div></div>`;
- const shown=pool.filter(t=>(!window.atlasTaskVisible||window.atlasTaskVisible(t))&&(ui.category.tasks==='all'||t.level===ui.category.tasks)&&(ui.status.tasks==='all'||taskStatus(t.id)===ui.status.tasks)&&matches(t.title,t.brief,t.outcome,...t.tags,...t.requirements,LAB_LEVELS.find(l=>l.id===t.level).title));
+ $('#view-toolbar').innerHTML=`<div class="view-toolbar"><div class="filter-list">${filterBtn('all','Все',total)}${Object.entries(LAB_STATUS).map(([v,label])=>filterBtn(v,label,pool.filter(t=>taskStatus(t.id)===v).length)).join('')}${filterBtn('overdue','Просрочено',pool.filter(calendarTaskLate).length)}</div><a class="btn" href="#calendar">Календарь и сроки</a></div>`;
+ const shown=pool.filter(t=>(!window.atlasTaskVisible||window.atlasTaskVisible(t))&&(ui.category.tasks==='all'||t.level===ui.category.tasks)&&(ui.status.tasks==='all'||(ui.status.tasks==='overdue'?calendarTaskLate(t):taskStatus(t.id)===ui.status.tasks))&&matches(t.title,t.brief,t.outcome,...t.tags,...t.requirements,LAB_LEVELS.find(l=>l.id===t.level).title));
  $('#result-meta').innerHTML=`<span>Показано <strong>${shown.length} из ${total}</strong> задач</span><span>Поиск по условиям и технологиям · без спойлеров</span>`;
  $('#results').innerHTML=shown.length?`<div class="lab-grid">${shown.map(t=>{
- const st=taskStatus(t.id),pct=taskPercent(t),lv=LAB_LEVELS.find(l=>l.id===t.level);return `<article class="lab-card" data-lab-card="${t.id}"><div class="lab-card-top"><span class="lab-card-icon">${icon(t.icon)}</span><span class="lab-level ${t.level}">${lv.title}</span><span class="lab-id">ПРОЕКТ ${String(t.id).padStart(2,'0')}</span></div><h3><a class="lab-title-link" href="${labLink(t)}">${highlight(t.title)}</a></h3><p class="lab-card-brief">${highlight(t.brief)}</p><div class="lab-tags">${t.tags.map(x=>`<span>${highlight(x)}</span>`).join('')}</div><div class="lab-card-foot"><div class="lab-progress-label"><span class="current">${LAB_STATUS[st]}</span><span>${taskCount(t)} / ${t.tests.length} проверок</span></div><div class="lab-progress-bar"><i style="width:${pct}%"></i></div><div class="lab-card-footer"><span class="lab-count">${t.build.length} шагов разработки</span><a class="btn ${st==='todo'?'':'btn-primary'}" href="${labLink(t,st==='design'?'design':st==='building'?'build':st==='review'||st==='done'?'test':'brief')}">${st==='todo'?'Открыть задачу':st==='done'?'Посмотреть':'Продолжить'}${icon('chevron-right')}</a></div></div></article>`;
+ const st=taskStatus(t.id),pct=taskPercent(t),lv=LAB_LEVELS.find(l=>l.id===t.level);return `<article class="lab-card" data-lab-card="${t.id}"><div class="lab-card-top"><span class="lab-card-icon">${icon(t.icon)}</span><span class="lab-level ${t.level}">${lv.title}</span><span class="lab-id">ПРОЕКТ ${String(t.id).padStart(2,'0')}</span></div><h3><a class="lab-title-link" href="${labLink(t)}">${highlight(t.title)}</a></h3><p class="lab-card-brief">${highlight(t.brief)}</p>${calendarTaskBadge(t)}<div class="lab-tags">${t.tags.map(x=>`<span>${highlight(x)}</span>`).join('')}</div><div class="lab-card-foot"><div class="lab-progress-label"><span class="current">${LAB_STATUS[st]}</span><span>${taskCount(t)} / ${t.tests.length} проверок</span></div><div class="lab-progress-bar"><i style="width:${pct}%"></i></div><div class="lab-card-footer"><span class="lab-count">${t.build.length} шагов разработки</span><a class="btn ${st==='todo'?'':'btn-primary'}" href="${labLink(t,st==='design'?'design':st==='building'?'build':st==='review'||st==='done'?'test':'brief')}">${st==='todo'?'Открыть задачу':st==='done'?'Посмотреть':'Продолжить'}${icon('chevron-right')}</a></div></div></article>`;
  }).join('')}</div><div class="lab-section-note">${icon('info')}<span>Это учебные задания и ориентиры решений, а не готовые backend-сервисы. Код разрабатывается и тестируется в вашей среде. Все нагрузки — условия упражнений, не данные реальных компаний.</span></div>`:empty();
 }
 function renderTaskDetail(){
@@ -7932,7 +8045,7 @@ function renderTaskDetail(){
  if(tab==='design')initSketch(t);
 }
 function labAside(t){
- const s=taskState(t.id);return `<aside class="lab-aside" aria-label="Прогресс и материалы задачи"><div class="lab-side-panel"><h3>ВАШ ПРОГРЕСС</h3><label class="sr-only" for="lab-status">Статус задачи</label><select id="lab-status" class="lab-status-select" data-lab-status="${t.id}">${Object.entries(LAB_STATUS).map(([k,l])=>`<option value="${k}" ${s.status===k?'selected':''}>${l}</option>`).join('')}</select><div class="lab-progress-label"><span>Приёмка</span><strong class="lab-meta-counter">${taskCount(t)} / ${t.tests.length}</strong></div><div class="lab-progress-bar"><i style="width:${taskPercent(t)}%"></i></div><p>Отметки — ваша проверка.<br>Страница не запускает и не оценивает код.</p><button class="btn" data-action="lab-plan" data-id="${t.id}">${icon('plus')}Связанные темы в план (${t.topics.length})</button></div><div class="lab-side-panel"><h3>ЧТО СДАТЬ</h3><ul class="lab-side-items">${t.deliver.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>${t.prereq.length?`<div class="lab-side-panel"><h3>ПОЛЕЗНО ПРОЙТИ РАНЬШЕ</h3>${t.prereq.map(id=>{const p=labTask(id);return `<a class="lab-related" href="${labLink(p)}"><b>${String(id).padStart(2,'0')}</b><span>${esc(p.title)}</span></a>`;}).join('')}<p style="margin-top:10px">Рекомендации, не блокировка доступа.</p></div>`:''}<div class="lab-side-panel"><h3>ДОКУМЕНТАЦИЯ</h3>${sourceLinks(t)}<div class="lab-doc-meta">Первоисточники проверены 16.10.2026. Условия, диаграммы и решения — авторские учебные материалы.</div></div></aside>`;
+ const s=taskState(t.id);return `<aside class="lab-aside" aria-label="Прогресс и материалы задачи"><div class="lab-side-panel"><h3>ВАШ ПРОГРЕСС</h3>${calendarTaskBadge(t)}<label class="sr-only" for="lab-status">Статус задачи</label><select id="lab-status" class="lab-status-select" data-lab-status="${t.id}">${Object.entries(LAB_STATUS).map(([k,l])=>`<option value="${k}" ${s.status===k?'selected':''}>${l}</option>`).join('')}</select><div class="lab-progress-label"><span>Приёмка</span><strong class="lab-meta-counter">${taskCount(t)} / ${t.tests.length}</strong></div><div class="lab-progress-bar"><i style="width:${taskPercent(t)}%"></i></div><p>Отметки — ваша проверка.<br>Страница не запускает и не оценивает код.</p><button class="btn" data-action="lab-plan" data-id="${t.id}">${icon('plus')}Связанные темы в план (${t.topics.length})</button></div><div class="lab-side-panel"><h3>ЧТО СДАТЬ</h3><ul class="lab-side-items">${t.deliver.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>${t.prereq.length?`<div class="lab-side-panel"><h3>ПОЛЕЗНО ПРОЙТИ РАНЬШЕ</h3>${t.prereq.map(id=>{const p=labTask(id);return `<a class="lab-related" href="${labLink(p)}"><b>${String(id).padStart(2,'0')}</b><span>${esc(p.title)}</span></a>`;}).join('')}<p style="margin-top:10px">Рекомендации, не блокировка доступа.</p></div>`:''}<div class="lab-side-panel"><h3>ДОКУМЕНТАЦИЯ</h3>${sourceLinks(t)}<div class="lab-doc-meta">Первоисточники проверены 16.10.2026. Условия, диаграммы и решения — авторские учебные материалы.</div></div></aside>`;
 }
 function labFoot(t,tab){const tabs=labTabs(),i=tabs.findIndex(x=>x[0]===tab);return `<div class="lab-foot-nav">${i>0?`<a class="btn previous" href="${labLink(t,tabs[i-1][0])}">${icon('chevron-right')}${tabs[i-1][1]}</a>`:'<span></span>'}${i<tabs.length-1?`<a class="btn btn-primary" href="${labLink(t,tabs[i+1][0])}">${tabs[i+1][1]}${icon('chevron-right')}</a>`:`<a class="btn" href="#tasks">К списку задач${icon('chevron-right')}</a>`}</div>`;}
 function labStage(t,tab){
@@ -8066,8 +8179,9 @@ const reqLabels={unset:'Не задано',required:'Обязательно',des
 const evalLabels={unverified:'Не проверено',confirmed:'Подтверждено',partial:'Частично',gap:'Не подтверждено'};
 const itemStatus={pending:'Не задан',asked:'Задан',skipped:'Пропущен',return:'Вернуться'};
 const decisions={pending:'Решение не принято',next:'Нужна дополнительная проверка',positive:'Продолжить процесс',pause:'Пауза',negative:'Не подходит этой вакансии'};
-const extraRoutes=['vacancy','profile','interview','summary','bot-project'];
-const extraTitles={vacancy:'Вакансия и редактор',profile:'Профиль кандидата',interview:'Собеседование',summary:'Итог оценки','bot-project':'Telegram Bot Builder'};
+const extraRoutes=['vacancy','profile','interview','summary','bot-project','calendar'];
+const calendarView={month:null,filter:'all',openWeeks:new Set(),initialized:false};
+const extraTitles={vacancy:'Вакансия и редактор',profile:'Профиль кандидата',interview:'Собеседование',summary:'Итог оценки','bot-project':'Telegram Bot Builder',calendar:'Календарь'};
 let ws=null,blockPersistence=false,pendingX=null;
 const xu={editor:'tech',openEvidence:new Set(),activeInterview:null,track:'all',showHidden:false};
 function text(v,max=10000){if(v===undefined||v===null)return '';if(typeof v!=='string'||v.length>max)throw Error('Некорректный текст или превышен лимит длины.');return v;}
@@ -8122,7 +8236,7 @@ function reqSelect(id){const value=requirement(id);return `<label>Для вак�
 function assessment(id){return state.assessment[id]||{status:'unverified',where:'',contribution:'',challenge:'',review:''};}
 function field(label,id,value,extra='',placeholder=''){return `<label class="x-field">${esc(label)}<textarea id="${esc(id)}" ${extra} maxlength="10000" placeholder="${esc(placeholder)}">${esc(value)}</textarea></label>`;}
 function evidencePanel(id){const a=assessment(id);return `<div class="x-evidence"><p class="x-small" style="margin-bottom:12px">Со слов кандидата — не подтверждение навыка. Ниже отдельно сохраняется вывод интервьюера.</p><div class="x-grid">${field('Где применял','x-where-'+id,a.where,`data-x-evidence="where" data-id="${esc(id)}"`)}${field('Что сделал лично','x-contribution-'+id,a.contribution,`data-x-evidence="contribution" data-id="${esc(id)}"`)}${field('С какой проблемой столкнулся','x-challenge-'+id,a.challenge,`data-x-evidence="challenge" data-id="${esc(id)}"`)}${field('Основание оценки интервьюера','x-review-'+id,a.review,`data-x-evidence="review" data-id="${esc(id)}"`)}</div><div class="x-row" style="margin-top:10px"><span class="x-small">Сохраняется при вводе · отдельно от «Да / Нет / Слышал»</span><button class="btn" data-x="evidence" data-id="${esc(id)}">Готово</button></div></div>`;}
-techRow=function(t){const a=assessment(t.id),open=xu.openEvidence.has(t.id);const html=baseTechRow(t);return html.replace(/<\/div>\s*$/,`<div class="x-tech-meta">${reqSelect(t.id)}<label>Проверка <select data-x-eval="${esc(t.id)}" aria-label="Проверка интервьюера: ${esc(t.name)}">${Object.entries(evalLabels).map(([v,l])=>`<option value="${v}" ${v===a.status?'selected':''}>${l}</option>`).join('')}</select></label><button class="btn btn-quiet" data-x="evidence" data-id="${esc(t.id)}" aria-expanded="${open}">${icon('clipboard')}Опыт и проверка</button><button class="btn btn-quiet" data-x="edit" data-type="tech" data-id="${esc(t.id)}">${icon('code')}Изменить</button></div>${open?evidencePanel(t.id):''}</div>`);};
+techRow=function(t){const a=assessment(t.id),open=xu.openEvidence.has(t.id);const html=baseTechRow(t);return html.replace(/<\/div>\s*$/,`<div class="x-tech-meta">${reqSelect(t.id)}<label>Проверка <select data-x-eval="${esc(t.id)}" aria-label="Проверка интервьюера: ${esc(t.name)}">${Object.entries(evalLabels).map(([v,l])=>`<option value="${v}" ${v===a.status?'selected':''}>${l}</option>`).join('')}</select></label><button class="btn btn-quiet" data-x="evidence" data-id="${esc(t.id)}" aria-expanded="${open}">${icon('clipboard')}Опыт и проверка</button><button class="btn btn-quiet" data-x="edit" data-type="tech" data-id="${esc(t.id)}">${icon('code')}Изменить</button></div>${calendarTechControl(t)}${open?evidencePanel(t.id):''}</div>`);};
 answerBody=function(q){return (state.selfAnswers[q.id]?`<div class="x-answer"><strong>Письменный ответ кандидата</strong>\n${esc(state.selfAnswers[q.id])}</div>`:'')+baseAnswerBody(q);};
 function contextBar(){return `<div class="x-context">${icon('user')}<span>Кандидат: <strong>${esc(state.candidate||'Без имени')}</strong></span><span>· Вакансия: <strong>${esc(role().name)}</strong></span><a class="btn" href="#profile">Профиль ${icon('chevron-right')}</a></div>`;}
 function xButton(label,action,attrs='',primary=false){return `<button class="btn ${primary?'btn-primary':''}" data-x="${action}" ${attrs}>${label}</button>`;}
@@ -8143,6 +8257,43 @@ function saveEdit(type,id){const title=$('#x-edit-title').value.trim(),group=$('
  try{ws.catalog=applyCatalog(updated);save();closeDialog();renderPage();notify('Материал сохранён. Прежние оценки не удалены.');}catch(e){applyCatalog(ws.catalog);notify(e.message);}}
 function categoryStat(candidate,category,r){const qs=DATA.questions.filter(q=>q.category===category&&!isHidden('questions',q.id,r));const scores=qs.map(q=>candidate.profile.scores[q.id]).filter(v=>Number.isInteger(v));return {rated:scores.length,total:qs.length,average:scores.length?(scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1):null};}
 function requiredStat(candidate,r){const ids=techItems.filter(t=>requirement(t.id,r)==='required'&&!isHidden('tech',t.id,r)).map(t=>t.id);return {total:ids.length,confirmed:ids.filter(id=>candidate.profile.assessment?.[id]?.status==='confirmed').length,unverified:ids.filter(id=>!candidate.profile.assessment?.[id]||candidate.profile.assessment[id].status==='unverified').length};}
+
+function calendarModel(){return AtlasLearningCalendar.schedule({tasks:LAB.tasks,technologies:techItems.filter(t=>!isHidden('tech',t.id)),profile:state});}
+function calendarTechControl(t){
+ const week=AtlasLearningCalendar.technologyWeek(t.id),done=state.calendar.learnedTech.includes(t.id);
+ return `<div class="cal-tech-study">${AtlasLearningCalendar.techControl(t,{week,due:AtlasLearningCalendar.weekRange(week).due,done})}</div>`;
+}
+function renderCalendar(){
+ const model=calendarModel(),focused=document.activeElement?.id;
+ if(!calendarView.initialized){calendarView.openWeeks.add((model.weeks.find(w=>w.current)||model.weeks.find(w=>!w.complete)||model.weeks[0]).number);calendarView.initialized=true;}
+ if(!calendarView.month)calendarView.month=(model.today<AtlasLearningCalendar.START?AtlasLearningCalendar.START:model.today).slice(0,7);
+ $('#page-intro').innerHTML=heading('ЛИЧНЫЙ УЧЕБНЫЙ РИТМ','Календарь обучения','С 26 октября 2026 года — одна задача в неделю, срок в воскресенье включительно.<br>18 основных заданий до 28 февраля 2027 года. Telegram Bot Builder остаётся отдельным практикумом.','1 задача / неделя')+
+ `<div class="metrics">${metric('Заданий завершено',model.doneTasks,'Из 18 запланированных','check-circle','green')}${metric('Технологий изучено',model.doneTech,`Из ${model.totalTech} видимых технологий`,'book','purple')}${metric('Заданий просрочено',model.overdueTasks,'Незавершённые после срока','clock',model.overdueTasks?'red':'')}${metric('Технологий просрочено',model.overdueTech,'Отметьте изученные отдельно','flag',model.overdueTech?'red':'')}</div>`;
+ $('#results').innerHTML=AtlasLearningCalendar.render(model,calendarView);
+ if(focused?.startsWith('calendar-tech-'))document.getElementById(focused)?.focus({preventScroll:true});
+}
+document.addEventListener('change',e=>{
+ const el=e.target;if(!el.matches('[data-calendar-learn]'))return;
+ const id=el.dataset.calendarLearn;if(!techIds.has(id))return;
+ const learned=new Set(state.calendar.learnedTech);el.checked?learned.add(id):learned.delete(id);state.calendar.learnedTech=[...learned];save();renderPage();
+});
+document.addEventListener('toggle',e=>{
+ const el=e.target;if(!el.matches?.('[data-calendar-week]')||!el.isConnected)return;
+ const week=Number(el.dataset.calendarWeek);el.open?calendarView.openWeeks.add(week):calendarView.openWeeks.delete(week);
+},true);
+document.addEventListener('click',e=>{
+ const filter=e.target.closest('[data-cal-filter]');if(filter){calendarView.filter=filter.dataset.calFilter;if(calendarView.filter==='overdue')for(const w of calendarModel().weeks.filter(w=>w.overdue))calendarView.openWeeks.add(w.number);renderPage();return;}
+ const month=e.target.closest('[data-cal-month]');if(month){calendarView.month=AtlasLearningCalendar.shiftMonth(calendarView.month,Number(month.dataset.calMonth));renderPage();return;}
+ if(e.target.closest('[data-cal-today]')){calendarView.month=AtlasLearningCalendar.localDay().slice(0,7);renderPage();return;}
+ const week=e.target.closest('[data-cal-week]');if(week){calendarView.openWeeks.add(Number(week.dataset.calWeek));location.hash='#calendar/'+week.dataset.calWeek;renderPage();document.getElementById('calendar-week-'+week.dataset.calWeek)?.scrollIntoView({block:'start',behavior:'smooth'});}
+});
+let calendarDay=AtlasLearningCalendar.localDay();
+function refreshCalendarDay(){
+ const today=AtlasLearningCalendar.localDay();if(today===calendarDay)return;calendarDay=today;
+ if(['calendar','tasks','technologies'].includes(ui.route))renderPage();else updateSidebar();
+}
+window.addEventListener('focus',refreshCalendarDay);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshCalendarDay();});setInterval(refreshCalendarDay,60000);
+
 function renderProfile(){const c=active(),r=role(),s=requiredStat(c,r);
  $('#page-intro').innerHTML=heading('07 / ПРОФИЛЬ','Профиль кандидата','Один кандидат, его опыт, учебный план и результаты интервью. Имя можно изменить в боковом меню.','Личный атлас');
  $('#results').innerHTML=`<section class="x-panel"><div class="x-row-top"><div><h2>${esc(state.candidate||'Без имени')}</h2><p class="x-small">${esc(r.name)}</p></div>${xButton('Сохранить атлас · HTML','atlas-export','',true)}</div><div class="metrics">${metric('Технологий отмечено',Object.keys(state.tech).length,`Из ${techItems.length} технологий`,'grid')}${metric('Вопросов оценено',Object.keys(state.scores).length,`Из ${DATA.questions.length} вопросов`,'message','purple')}${metric('Навыков подтверждено',s.confirmed,`Из ${s.total} обязательных`,'check-circle','green')}${metric('Тем в работе',Object.values(state.topics).filter(v=>v==='plan'||v==='learning').length,'В личном учебном плане','map','amber')}</div><div class="x-row"><a class="btn" href="#technologies">Оценить технологии</a><a class="btn" href="#topics">План обучения</a><a class="btn" href="#interview">Собеседование</a><a class="btn" href="#summary">Итог оценки</a></div></section><section class="x-panel"><h2>Сохранение данных</h2><p class="x-small">Ответы, оценки, комментарии, схемы и прогресс сохраняются в браузере. Кнопка «Сохранить атлас · HTML» скачивает весь атлас вместе с заполненным профилем: его можно открыть в другом браузере и продолжить работу.</p><div class="x-row" style="margin-top:14px">${xButton('Резервная копия · JSON','workspace-export')}${xButton('Импортировать профиль','import')}</div><div class="x-note">При импорте прежнего атласа с несколькими кандидатами выберите один профиль. Импорт заменяет текущие данные после подтверждения.</div></section>`;
@@ -8272,10 +8423,13 @@ doAction=function(action,el){if(action==='export-json'){exportWorkspace();return
 const originalStage=labStage;
 labStage=function(t,tab){let html=originalStage(t,tab);if(t.repoContext&&tab==='brief')html=`<div class="lab-panel"><div class="lab-kicker">ПРИВЯЗКА К СТАРОМУ ПРОЕКТУ</div><h2>Где работать в репозитории</h2><p class="x-small">Статический разбор снимка ${esc(t.repoContext.commit.slice(0,8))}. Необходимость предыдущих задач можно заменить небольшим тестовым адаптером.</p><h3 style="margin-top:15px;font-size:13px">Уже существующие места</h3>${labList(t.repoContext.existing)}<h3 style="font-size:13px">Предлагается добавить</h3>${labList(t.repoContext.proposed)}<a class="btn" href="#bot-project">Весь маршрут проекта</a></div>`+html;return html;};
 const oldUpdate=updateSidebar;
-updateSidebar=function(){if(!ws){oldUpdate();return;}const items=techItems.filter(t=>!isHidden('tech',t.id)),count=items.filter(t=>state.tech[t.id]).length,pct=items.length?Math.round(count/items.length*100):0;$('#side-percent').textContent=pct+'%';$('#side-fill').style.width=pct+'%';$('#side-progress-caption').textContent=`${count} из ${items.length} видимых технологий отмечено`;};
+updateSidebar=function(){if(!ws){oldUpdate();return;}const items=techItems.filter(t=>!isHidden('tech',t.id)),count=items.filter(t=>state.tech[t.id]).length,pct=items.length?Math.round(count/items.length*100):0;$('#side-percent').textContent=pct+'%';$('#side-fill').style.width=pct+'%';$('#side-progress-caption').textContent=`${count} из ${items.length} видимых технологий отмечено`;
+ const badge=$('#calendar-nav-count');if(badge){const model=calendarModel(),late=model.overdueTasks+model.overdueTech;badge.textContent=late?String(late):'18';badge.classList.toggle('cal-nav-overdue',late>0);badge.setAttribute('aria-label',late?'Просрочено элементов: '+late:'18 недель');}
+ };
 renderPage=function(){if(!ws){baseRender();return;}if(extraRoutes.includes(ui.route)){
- $('#searchbar').hidden=ui.route==='summary'||ui.route==='profile';$('.select-area').hidden=true;$('#category-filter').innerHTML='<option value="all">Все</option>';$('#search-action').innerHTML='';$('#view-toolbar').hidden=true;$('#result-meta').hidden=true;$('#view-toolbar').innerHTML='';$('#result-meta').innerHTML='';
- const renderers={vacancy:renderVacancy,profile:renderProfile,interview:renderInterview,summary:renderSummary,'bot-project':renderRepo};renderers[ui.route]();$('#search-clear').hidden=!ui.search[ui.route];
+ activeSketchEditor?.destroy();activeSketchEditor=null;
+ $('#searchbar').hidden=['summary','profile','calendar'].includes(ui.route);$('.select-area').hidden=true;$('#category-filter').innerHTML='<option value="all">Все</option>';$('#search-action').innerHTML='';$('#view-toolbar').hidden=true;$('#result-meta').hidden=true;$('#view-toolbar').innerHTML='';$('#result-meta').innerHTML='';
+ const renderers={vacancy:renderVacancy,profile:renderProfile,interview:renderInterview,summary:renderSummary,'bot-project':renderRepo,calendar:renderCalendar};renderers[ui.route]();$('#search-clear').hidden=!ui.search[ui.route];
  }else{ $('.select-area').hidden=false;baseRender();$('#page-intro').insertAdjacentHTML('afterbegin',contextBar());if(ui.route==='technologies'){const actions=$('#search-action');actions.innerHTML=`${xButton('Добавить','edit','data-type="tech"')} ${xButton(xu.showHidden?'Убрать скрытые':'Показать скрытые','toggle-hidden')}`;}
  if(ui.route==='questions'){for(const q of DATA.questions){const host=$(`#question-${q.id} .q-controls`);if(host)host.insertAdjacentHTML('beforeend',xButton('Правка','edit',`data-type="questions" data-id="${q.id}"`));}$('#search-action').insertAdjacentHTML('beforeend',' '+xButton('Добавить','edit','data-type="questions"'));}
  if(ui.route==='topics')$('#search-action').insertAdjacentHTML('beforeend',' '+xButton('Добавить','edit','data-type="topics"'));
@@ -8284,10 +8438,13 @@ renderPage=function(){if(!ws){baseRender();return;}if(extraRoutes.includes(ui.ro
  }
  updateSidebar();syncSidebar();};
 window.removeEventListener('hashchange',baseSetRoute);
-setRoute=function(){if(location.hash==='#candidates'){location.replace('#profile');return;}baseSetRoute();if(extraRoutes.includes(ui.route)){const placeholders={vacancy:'Поиск материалов в редакторе…',profile:'',interview:'Поиск вопросов и задач для встречи…',summary:'', 'bot-project':'Поиск задач по своему проекту…'};$('#search').placeholder=placeholders[ui.route];$('#search').setAttribute('aria-label',placeholders[ui.route]||'Поиск');}};
+setRoute=function(){
+ if(location.hash.startsWith('#calendar/')){const week=Number(location.hash.split('/')[1]);if(Number.isInteger(week)&&week>=1&&week<=18){calendarView.openWeeks.add(week);calendarView.month=AtlasLearningCalendar.weekRange(week).due.slice(0,7);calendarView.filter='all';}}
+ if(location.hash==='#candidates'){location.replace('#profile');return;}baseSetRoute();if(extraRoutes.includes(ui.route)){const placeholders={vacancy:'Поиск материалов в редакторе…',profile:'',interview:'Поиск вопросов и задач для встречи…',summary:'', 'bot-project':'Поиск задач по своему проекту…',calendar:''};$('#search').placeholder=placeholders[ui.route];$('#search').setAttribute('aria-label',placeholders[ui.route]||'Поиск');}if(ui.route==='calendar'&&/^#calendar\/([1-9]|1[0-8])$/.test(location.hash))requestAnimationFrame(()=>document.getElementById('calendar-week-'+location.hash.split('/')[1])?.scrollIntoView({block:'start'}));};
 window.addEventListener('hashchange',setRoute);
 function init(){boot();for(const rt of extraRoutes){routes.push(rt);titles[rt]=extraTitles[rt];ui.search[rt]='';ui.category[rt]='all';ui.status[rt]='all';}
  const nav=$('.nav-list');nav.insertAdjacentHTML('beforeend',`<a class="nav-link" href="#bot-project" data-route="bot-project">${icon('code')}<span>Telegram Bot Builder</span><span class="nav-number">13</span></a><div class="x-nav-caption">ОЦЕНКА И ИНТЕРВЬЮ</div>${[['vacancy','layers'],['profile','user'],['interview','clock'],['summary','clipboard']].map(([rt,ic])=>`<a class="nav-link" href="#${rt}" data-route="${rt}">${icon(ic)}<span>${extraTitles[rt]}</span></a>`).join('')}`);
+ $('.nav-link[data-route="tasks"]').insertAdjacentHTML('beforebegin',`<a class="nav-link" href="#calendar" data-route="calendar">${icon('clock')}<span>Календарь</span><span class="nav-number" id="calendar-nav-count">18</span></a>`);
  const projectNav=$('.nav-link[data-route="bot-project"]');$('.nav-link[data-route="tasks"]').insertAdjacentElement('afterend',projectNav);
  $('.profile-field').insertAdjacentHTML('afterend','<label class="x-role-label" for="x-role-select">ВАКАНСИЯ / ШАБЛОН</label><select id="x-role-select" class="x-profile-select"></select>');$('#profile-hint').textContent='Один профиль: ответы, оценки и личный план обучения.';$('.version').textContent='v5.2';$('.top-actions').insertAdjacentHTML('beforeend',`<button class="btn btn-primary" data-x="atlas-export" aria-label="Сохранить атлас вместе с данными в HTML" title="Сохранить атлас вместе с данными в HTML">${icon('download')}<span>Сохранить атлас · HTML</span></button>`);document.body.insertAdjacentHTML('beforeend','<input id="x-import-answers" type="file" accept="application/json,.json" hidden>');$('#x-import-answers').addEventListener('change',e=>importAnswers(e.target.files[0]));$('#dialog').addEventListener('close',()=>{pendingX=null;});$('#candidate').value=state.candidate;syncSidebar();setRoute();
  setInterval(()=>{const el=$('#x-timer');if(el)el.textContent=timeText(elapsed());},1000);
