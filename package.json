@@ -13,6 +13,7 @@
     "test:browser": "node tests/browser.cjs",
     "test:diagram": "node tests/diagram.cjs",
     "test:calendar": "node tests/calendar.cjs",
+    "test:comments": "node tests/comments.cjs",
     "deploy:pages": "node scripts/deploy-pages.mjs"
   }
 }

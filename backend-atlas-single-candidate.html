@@ -114,6 +114,20 @@
   const ports = {left:[0,29,-1,0],right:[220,29,1,0],top:[110,0,0,-1],bottom:[110,58,0,1]};
   const selectionRect = (a,b) => ({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.abs(a.x-b.x),height:Math.abs(a.y-b.y)});
   const newId = () => 'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,9);
+  function validateComments(raw,nodes){
+    if(raw===undefined)return [];
+    if(!Array.isArray(raw)||raw.length>100)throw Error('Некорректные комментарии схемы (до 100 обсуждений).');
+    const ids=new Set(),nodeIds=new Set(nodes.map(n=>n.id));
+    return raw.map(c=>{
+      if(!c||typeof c.id!=='string'||!/^[a-zA-Z0-9_-]{1,40}$/.test(c.id)||ids.has(c.id)||!Number.isFinite(c.x)||!Number.isFinite(c.y)||typeof c.resolved!=='boolean'||!Array.isArray(c.messages)||!c.messages.length||c.messages.length>50)throw Error('Некорректное обсуждение схемы.');
+      ids.add(c.id);const anchored=c.nodeId!==undefined;if(anchored&&!nodeIds.has(c.nodeId))throw Error('Блок комментария не найден.');
+      const messageIds=new Set(),messages=c.messages.map(m=>{
+        if(!m||typeof m.id!=='string'||!/^[a-zA-Z0-9_-]{1,40}$/.test(m.id)||messageIds.has(m.id)||typeof m.text!=='string'||!m.text.trim()||m.text.length>4000||typeof m.author!=='string'||m.author.length>100||typeof m.at!=='string'||m.at.length>64||!Number.isFinite(Date.parse(m.at)))throw Error('Некорректное сообщение комментария.');
+        messageIds.add(m.id);return {id:m.id,author:m.author,text:m.text,at:m.at};
+      });
+      return {id:c.id,x:clamp(c.x,0,anchored?220:3600),y:clamp(c.y,0,anchored?58:2400),...(anchored?{nodeId:c.nodeId}:{}),resolved:c.resolved,messages};
+    });
+  }
   function clipboardGraph(text) {
     if(!text||text.length>100000)return null;
     try {
@@ -160,18 +174,23 @@
   }
   let serial=0;
   class Editor {
-    constructor(host,{read,write,notify=()=>{}}) {
+    constructor(host,{read,write,notify=()=>{},author=()=>''}) {
       this.host=host;this.write=write;this.notify=notify;this.diagram=clone(read());this.id=++serial;
+      this.diagram.comments=validateComments(this.diagram.comments,this.diagram.nodes);this.author=author;
+      this.commentsOpen=false;this.activeComment=null;this.draftComment=null;this.editingMessage=null;this.showResolved=false;this.commentDrafts=new Map();
       this.selected={nodes:[],edge:null};this.history=[];this.future=[];this.mode='select';this.connectFrom=null;this.drag=null;
       this.camera={x:0,y:0,zoom:1};this.events=new AbortController();
-      const shortcuts={undo:['Ctrl+Z','Control+Z Meta+Z'],redo:['Ctrl+Y','Control+Y Control+Shift+Z Meta+Shift+Z'],fullscreen:['F','F']};
+      const shortcuts={undo:['Ctrl+Z','Control+Z Meta+Z'],redo:['Ctrl+Y','Control+Y Control+Shift+Z Meta+Shift+Z'],fullscreen:['F','F'],comment:['C','C']};
       const button=(action,label,title=label)=>{const shortcut=shortcuts[action];return `<button class="btn ${action==='fullscreen'?'sketch-fullscreen-toggle':''}" type="button" data-editor-action="${action}" aria-label="${title}" title="${title}${shortcut?' · '+shortcut[0]:''}" ${shortcut?`aria-keyshortcuts="${shortcut[1]}"`:''}><span>${label}</span>${shortcut?`<kbd aria-hidden="true">${shortcut[0]}</kbd>`:''}</button>`;};
       host.className='sketch-editor';
-      host.innerHTML=`<div class="sketch-editor-toolbar" role="toolbar" aria-label="Управление схемой"><div class="sketch-tools">${button('select','Выбор')}${button('pan','Перемещение')}${button('connect','Связать')}</div><div class="sketch-tools">${button('undo','Отменить','Отменить изменение')}${button('redo','Повторить','Повторить изменение')}</div><div class="sketch-tools sketch-view-tools">${button('zoom-out','−','Уменьшить масштаб')}<output data-editor-zoom aria-label="Масштаб">100%</output>${button('zoom-in','+','Увеличить масштаб')}${button('fit','Вместить','Показать всю схему')}${button('fullscreen','На весь экран','Полноэкранный режим')}</div></div><div class="sketch-editor-layout"><aside class="sketch-palette" aria-label="Компоненты архитектуры"><strong>КОМПОНЕНТЫ</strong><p>Перетащите на поле<br>или нажмите</p>${TYPES.map(t=>`<button type="button" class="sketch-palette-item" draggable="true" data-component="${t.id}" aria-label="${t.add}" style="--component-color:${t.color}"><span>${t.name}</span><small>${t.hint}</small></button>`).join('')}</aside><div class="sketch-stage"><div id="sketch-host" class="sketch-canvas" tabindex="0" aria-label="Поле схемы"><svg id="sketch-svg" class="sketch-svg" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Редактор схемы архитектуры"></svg><div class="sketch-empty-state"><strong>Из чего состоит ваша система?</strong><span>Добавьте компонент из палитры.<br>Потяните за точку блока, чтобы создать связь.</span></div></div><div class="sketch-context" aria-label="Выбранный элемент"></div></div></div><p class="sketch-editor-status" id="sketch-status" role="status">Черновик сохраняется автоматически. Выделяйте рамкой; Shift + клик меняет группу. Ctrl+C / Ctrl+V — копия.</p>`;
+      host.innerHTML=`<div class="sketch-editor-toolbar" role="toolbar" aria-label="Управление схемой"><div class="sketch-tools">${button('select','Выбор')}${button('pan','Перемещение')}${button('connect','Связать')}${button('comment','Комментарий')}${button('threads','Обсуждения','Открыть комментарии')}</div><div class="sketch-tools">${button('undo','Отменить','Отменить изменение')}${button('redo','Повторить','Повторить изменение')}</div><div class="sketch-tools sketch-view-tools">${button('zoom-out','−','Уменьшить масштаб')}<output data-editor-zoom aria-label="Масштаб">100%</output>${button('zoom-in','+','Увеличить масштаб')}${button('fit','Вместить','Показать всю схему')}${button('fullscreen','На весь экран','Полноэкранный режим')}</div></div><div class="sketch-editor-layout"><aside class="sketch-palette" aria-label="Компоненты архитектуры"><strong>КОМПОНЕНТЫ</strong><p>Перетащите на поле<br>или нажмите</p>${TYPES.map(t=>`<button type="button" class="sketch-palette-item" draggable="true" data-component="${t.id}" aria-label="${t.add}" style="--component-color:${t.color}"><span>${t.name}</span><small>${t.hint}</small></button>`).join('')}</aside><div class="sketch-stage"><div id="sketch-host" class="sketch-canvas" tabindex="0" aria-label="Поле схемы"><svg id="sketch-svg" class="sketch-svg" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Редактор схемы архитектуры"></svg><aside class="sketch-comments-panel" aria-label="Комментарии схемы" hidden></aside><div class="sketch-empty-state"><strong>Из чего состоит ваша система?</strong><span>Добавьте компонент из палитры.<br>Потяните за точку блока, чтобы создать связь.</span></div></div><div class="sketch-context" aria-label="Выбранный элемент"></div></div></div><p class="sketch-editor-status" id="sketch-status" role="status">Черновик сохраняется автоматически. Выделяйте рамкой; Shift + клик меняет группу. Ctrl+C / Ctrl+V — копия.</p>`;
       this.canvas=host.querySelector('.sketch-canvas');this.svg=host.querySelector('svg');
       const on=(el,event,fn,options={})=>el.addEventListener(event,fn,{...options,signal:this.events.signal});
-      on(host,'click',e=>{const component=e.target.closest('[data-component]');if(component){this.add(component.dataset.component);return;}const action=e.target.closest('[data-editor-action]');if(action)this.action(action.dataset.editorAction);});
-      on(host,'submit',e=>{if(e.target.matches('.sketch-edit-form')){e.preventDefault();this.rename(new FormData(e.target).get('label'));}});
+      on(host,'click',e=>{const comment=e.target.closest('[data-comment-action]');if(comment){this.commentAction(comment.dataset.commentAction,comment);return;}const thread=e.target.closest('[data-thread-open]');if(thread){this.openThread(thread.dataset.threadOpen);return;}const component=e.target.closest('[data-component]');if(component){this.add(component.dataset.component);return;}const action=e.target.closest('[data-editor-action]');if(action)this.action(action.dataset.editorAction);});
+      on(host,'submit',e=>{if(e.target.matches('.sketch-comment-form')){e.preventDefault();this.sendComment(new FormData(e.target).get('text'));return;}if(e.target.matches('.sketch-edit-form')){e.preventDefault();this.rename(new FormData(e.target).get('label'));}});
+      on(host,'input',e=>{if(e.target.matches('[data-comment-text]'))this.commentDrafts.set(this.commentDraftKey(),e.target.value);});
+      on(host,'change',e=>{if(e.target.matches('[data-comment-resolved]')){this.showResolved=e.target.checked;this.draw();this.renderComments();}});
+      on(host,'keydown',e=>{if(e.target.matches('[data-comment-text]')&&(e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();e.target.form.requestSubmit();}});
       on(host,'dragstart',e=>{const item=e.target.closest('[data-component]');if(item){e.dataTransfer.setData('application/x-atlas-component',item.dataset.component);e.dataTransfer.effectAllowed='copy';}});
       on(this.canvas,'dragover',e=>{if([...e.dataTransfer.types].includes('application/x-atlas-component')){e.preventDefault();e.dataTransfer.dropEffect='copy';}});
       on(this.canvas,'drop',e=>{const kind=e.dataTransfer.getData('application/x-atlas-component');if(!TYPES.some(t=>t.id===kind))return;e.preventDefault();const p=this.point(e);this.add(kind,{x:p.x-110,y:p.y-29});});
@@ -190,24 +209,88 @@
     point(event){return new DOMPoint(event.clientX,event.clientY).matrixTransform(this.svg.getScreenCTM().inverse());}
     size(){const box=this.canvas.getBoundingClientRect();return {width:Math.max(1,box.width),height:Math.max(1,box.height)};}
     resize(){const s=this.size();this.svg.setAttribute('viewBox',`${this.camera.x} ${this.camera.y} ${s.width/this.camera.zoom} ${s.height/this.camera.zoom}`);this.host.querySelector('[data-editor-zoom]').textContent=Math.round(this.camera.zoom*100)+'%';this.draw();}
-    fit(){const s=this.size(),d=this.diagram;if(!d.nodes.length){this.camera={x:0,y:0,zoom:Math.min(1,s.width/920)};return this.resize();}const minX=Math.min(...d.nodes.map(n=>n.x))-48,minY=Math.min(...d.nodes.map(n=>n.y))-48,maxX=Math.max(...d.nodes.map(n=>n.x+220))+48,maxY=Math.max(...d.nodes.map(n=>n.y+58))+48;const zoom=clamp(Math.min(s.width/(maxX-minX),s.height/(maxY-minY),1.2),.2,2);this.camera={zoom,x:(minX+maxX-s.width/zoom)/2,y:(minY+maxY-s.height/zoom)/2};this.resize();}
+    fit(){
+      const s=this.size(),items=this.diagram.nodes.map(n=>({x:n.x,y:n.y,width:220,height:58}));
+      for(const c of this.diagram.comments)if(!c.resolved||this.showResolved){const p=this.commentPosition(c);items.push({x:p.x,y:p.y-32,width:32,height:32});}
+      if(!items.length){this.camera={x:0,y:0,zoom:Math.min(1,s.width/920)};return this.resize();}
+      const minX=Math.min(...items.map(n=>n.x))-48,minY=Math.min(...items.map(n=>n.y))-48,maxX=Math.max(...items.map(n=>n.x+n.width))+48,maxY=Math.max(...items.map(n=>n.y+n.height))+48;
+      const zoom=clamp(Math.min(s.width/(maxX-minX),s.height/(maxY-minY),1.2),.2,2);this.camera={zoom,x:(minX+maxX-s.width/zoom)/2,y:(minY+maxY-s.height/zoom)/2};this.resize();
+    }
     zoom(factor,event){const s=this.size(),old=this.camera.zoom,next=clamp(old*factor,.2,2.5),p=event?this.point(event):{x:this.camera.x+s.width/old/2,y:this.camera.y+s.height/old/2};this.camera.x=p.x-(p.x-this.camera.x)*old/next;this.camera.y=p.y-(p.y-this.camera.y)*old/next;this.camera.zoom=next;this.resize();}
 
     draw(){
       const s=this.size(),c=this.camera,frame=this.drag?.type==='marquee'?selectionRect(this.drag.start,this.drag.end):null;
-      this.svg.innerHTML=`<defs><pattern id="sketch-grid-${this.id}" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".8" fill="#dcd8ee"/></pattern></defs><rect x="${c.x}" y="${c.y}" width="${s.width/c.zoom}" height="${s.height/c.zoom}" fill="url(#sketch-grid-${this.id})"/>${svg(this.diagram,this.id,{interactive:true,...this.selected})}${this.drag?.type==='link'?`<path class="sketch-link sketch-preview" d="M ${this.drag.start.x} ${this.drag.start.y} L ${this.drag.end.x} ${this.drag.end.y}"/>`:''}${frame?`<rect class="sketch-marquee" x="${frame.x}" y="${frame.y}" width="${frame.width}" height="${frame.height}"/>`:''}`;
-      this.host.querySelector('.sketch-empty-state').hidden=!!this.diagram.nodes.length;this.canvas.dataset.mode=this.mode;
+      this.svg.innerHTML=`<defs><pattern id="sketch-grid-${this.id}" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".8" fill="#dcd8ee"/></pattern></defs><rect x="${c.x}" y="${c.y}" width="${s.width/c.zoom}" height="${s.height/c.zoom}" fill="url(#sketch-grid-${this.id})"/>${svg(this.diagram,this.id,{interactive:true,...this.selected})}${this.drag?.type==='link'?`<path class="sketch-link sketch-preview" d="M ${this.drag.start.x} ${this.drag.start.y} L ${this.drag.end.x} ${this.drag.end.y}"/>`:''}${this.commentPins()}${frame?`<rect class="sketch-marquee" x="${frame.x}" y="${frame.y}" width="${frame.width}" height="${frame.height}"/>`:''}`;
+      this.host.querySelector('.sketch-empty-state').hidden=!!this.diagram.nodes.length||!!this.diagram.comments.length;this.canvas.dataset.mode=this.mode;
     }
-    render(){this.draw();this.context();for(const b of this.host.querySelectorAll('[data-editor-action]')){const a=b.dataset.editorAction;if(['select','pan','connect'].includes(a))b.setAttribute('aria-pressed',String(a===this.mode));if(a==='undo')b.disabled=!this.history.length;if(a==='redo')b.disabled=!this.future.length;}}
+    render(){this.draw();this.context();this.renderComments();const threads=this.host.querySelector('[data-editor-action="threads"]');threads.querySelector('span').textContent='Обсуждения '+this.diagram.comments.filter(c=>!c.resolved).length;for(const b of this.host.querySelectorAll('[data-editor-action]')){const a=b.dataset.editorAction;if(['select','pan','connect','comment'].includes(a))b.setAttribute('aria-pressed',String(a===this.mode));if(a==='undo')b.disabled=!this.history.length;if(a==='redo')b.disabled=!this.future.length;}}
 
     context(){
       const box=this.host.querySelector('.sketch-context');
+      if(this.mode==='comment'){box.innerHTML='<span class="sketch-context-hint">Щёлкните по блоку или свободному месту, чтобы оставить комментарий. Метки на блоках перемещаются вместе с ними.</span>';return;}
       if(this.selected.nodes.length>1){box.innerHTML=`<div class="sketch-group-context"><span class="sketch-context-hint"><strong>Выбрано блоков: ${this.selected.nodes.length}</strong><br>Перетащите любой выбранный блок. Ctrl+C / Ctrl+V — копировать вместе со связями.</span><button class="btn" type="button" data-editor-action="delete" aria-label="Удалить выбранное">Удалить группу</button></div>`;return;}
       const node=this.diagram.nodes.find(n=>n.id===this.selected.nodes[0]),edge=this.diagram.edges[this.selected.edge];
       if(!node&&!edge){box.innerHTML='<span class="sketch-context-hint">Выделите блоки рамкой в режиме «Выбор». Shift + клик — добавить или убрать блок.<br>Сдвиг поля: «Перемещение» или средняя кнопка. Масштаб: Ctrl + колесо.</span>';return;}
       const label=node?'Название блока':'Подпись связи',value=node?.label??edge.label;
       box.innerHTML=`<form class="sketch-edit-form"><label class="x-field">${label}<input name="label" maxlength="${node?60:80}" value="${esc(value)}" placeholder="${node?'Название компонента':'HTTP, SQL или событие'}" ${node?'required':''}></label><button class="btn" type="submit">Применить</button><button class="btn" type="button" data-editor-action="delete" aria-label="Удалить выбранное">Удалить</button></form>`;
     }
+
+    closeComments(){this.commentsOpen=false;this.activeComment=null;this.draftComment=null;this.editingMessage=null;}
+    commentPosition(c){const node=this.diagram.nodes.find(n=>n.id===c.nodeId);return {x:c.x+(node?.x||0),y:c.y+(node?.y||0)};}
+    commentPins(){
+      const pin=(c,label,extra='')=>{const p=this.commentPosition(c),active=c.id===this.activeComment;return `<g class="sketch-comment-pin ${c.resolved?'is-resolved':''} ${active?'is-active':''} ${extra}" transform="translate(${p.x},${p.y}) scale(${1/this.camera.zoom})" ${c.id?`data-comment-id="${esc(c.id)}" role="button" tabindex="0" aria-label="Комментарий ${label}: ${esc(c.messages[0].text.slice(0,80))}" aria-pressed="${active}"`:''}><path class="sketch-comment-pin-body" d="M 0 0 V -20 A 12 12 0 0 1 12 -32 H 20 A 12 12 0 0 1 32 -20 V -12 A 12 12 0 0 1 20 0 Z"/><text x="16" y="-11" text-anchor="middle">${label}</text></g>`;};
+      return this.diagram.comments.map((c,i)=>!c.resolved||this.showResolved||c.id===this.activeComment?pin(c,i+1):'').join('')+(this.draftComment?pin(this.draftComment,'+','is-draft'):'');
+    }
+    openThread(id){
+      if(!this.diagram.comments.some(c=>c.id===id))return;
+      this.mode='select';this.activeComment=id;this.draftComment=null;this.editingMessage=null;this.commentsOpen=true;this.selected={nodes:[],edge:null};this.render();
+    }
+    commentDraftKey(){return this.editingMessage?'edit:'+this.editingMessage:this.draftComment?'new':'reply:'+this.activeComment;}
+    renderComments(){
+      const panel=this.host.querySelector('.sketch-comments-panel');panel.hidden=!this.commentsOpen;if(!this.commentsOpen)return;
+      const thread=this.diagram.comments.find(c=>c.id===this.activeComment);if(this.activeComment&&!thread)this.activeComment=null;
+      const number=thread?this.diagram.comments.indexOf(thread)+1:null;
+      const header=`<div class="sketch-comment-head"><strong>${this.draftComment?'Новый комментарий':thread?'Обсуждение '+number:'Комментарии'}</strong><button type="button" class="sketch-comment-close" data-comment-action="close" aria-label="Закрыть комментарии">×</button></div>`;
+      if(!thread&&!this.draftComment){
+        const shown=this.diagram.comments.filter(c=>this.showResolved||!c.resolved);
+        panel.innerHTML=header+`<label class="sketch-resolved-filter"><input type="checkbox" data-comment-resolved aria-label="Показать решённые" ${this.showResolved?'checked':''}>Показать решённые</label><div class="sketch-comment-list">${shown.length?shown.map(c=>{const i=this.diagram.comments.indexOf(c)+1,node=this.diagram.nodes.find(n=>n.id===c.nodeId);return `<button type="button" class="sketch-comment-item" data-thread-open="${esc(c.id)}" aria-label="Открыть комментарий ${i}: ${esc(c.messages[0].text.slice(0,70))}"><span class="sketch-comment-number">${i}</span><span><strong>${esc(c.messages[0].text.slice(0,100))}</strong><small>${esc(node?.label||'Точка на схеме')} · ${c.messages.length} сообщ. ${c.resolved?'· Решено':''}</small></span></button>`;}).join(''):'<p class="sketch-comment-empty">Нет открытых обсуждений.<br>Нажмите C и выберите точку на схеме.</p>'}</div><button type="button" class="btn" data-comment-action="add">Оставить комментарий</button>`;return;
+      }
+      const node=this.diagram.nodes.find(n=>n.id===(thread||this.draftComment).nodeId),key=this.commentDraftKey();
+      const isEdit=!!this.editingMessage,label=isEdit?'Редактировать комментарий':thread?'Ответ':'Текст комментария';
+      const form=thread?.resolved?'':`<form class="sketch-comment-form"><label>${label}<textarea name="text" data-comment-text aria-label="${label}" maxlength="4000" required placeholder="${thread?'Напишите ответ…':'Что нужно обсудить?'}">${esc(this.commentDrafts.get(key)||'')}</textarea></label><div class="sketch-comment-send"><small>Ctrl+Enter — отправить</small><button class="btn btn-primary" type="submit">${isEdit?'Сохранить комментарий':thread?'Отправить ответ':'Отправить комментарий'}</button></div>${isEdit?'<button type="button" class="sketch-comment-link" data-comment-action="cancel-edit">Отменить правку</button>':''}</form>`;
+      panel.innerHTML=header+`<div class="sketch-comment-navigation"><button type="button" class="sketch-comment-link" data-comment-action="list">Все обсуждения</button><span>${esc(node?.label||'Точка на схеме')}</span></div>${thread?`<div class="sketch-comment-messages">${thread.messages.map((m,i)=>`<article class="sketch-comment-message"><div><strong>${esc(m.author||'Я')}</strong><time datetime="${esc(m.at)}">${esc(new Date(m.at).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}</time></div><p>${esc(m.text)}</p>${!thread.resolved?`<button type="button" class="sketch-comment-link" data-comment-action="edit" data-message-id="${esc(m.id)}" aria-label="Изменить сообщение ${i+1}">Изменить</button>`:''}</article>`).join('')}</div><div class="sketch-comment-resolution"><button class="btn" type="button" data-comment-action="resolve">${thread.resolved?'Открыть снова':'Отметить решённым'}</button><button class="sketch-comment-link danger" type="button" data-comment-action="delete" aria-label="Удалить обсуждение">Удалить</button></div>`:'<p class="sketch-comment-empty">Комментарий привязан к выбранной точке.</p>'}${form}`;
+    }
+    sendComment(value){
+      const text=String(value||'').trim();if(!text)return this.notify('Напишите комментарий.');if(text.length>4000)return this.notify('Комментарий — до 4000 символов.');
+      const thread=this.diagram.comments.find(c=>c.id===this.activeComment),before=clone(this.diagram),key=this.commentDraftKey();
+      if(this.editingMessage&&thread){const message=thread.messages.find(m=>m.id===this.editingMessage);if(!message)return;message.text=text;}
+      else{
+        if(thread?.resolved)return;
+        if(thread?.messages.length>=50)return this.notify('В обсуждении может быть до 50 сообщений.');
+        if(!thread&&(!this.draftComment||this.diagram.comments.length>=100))return this.notify('На схеме может быть до 100 обсуждений.');
+        const message={id:newId(),author:String(this.author()||'Я').trim().slice(0,100)||'Я',text,at:new Date().toISOString()};
+        if(thread)thread.messages.push(message);
+        else{const created={id:newId(),...this.draftComment,resolved:false,messages:[message]};this.diagram.comments.push(created);this.activeComment=created.id;}
+      }
+      this.commentDrafts.delete(key);this.draftComment=null;this.editingMessage=null;this.mode='select';this.commit(before);this.message('Комментарий сохранён вместе со схемой.');
+    }
+    commentAction(action,el){
+      if(action==='close'){this.closeComments();this.mode='select';this.render();return;}
+      if(action==='add'){this.action('comment');return;}
+      if(action==='list'){this.activeComment=null;this.draftComment=null;this.editingMessage=null;this.mode='select';this.render();return;}
+      const thread=this.diagram.comments.find(c=>c.id===this.activeComment);if(!thread)return;
+      if(action==='edit'){
+        const message=thread.messages.find(m=>m.id===el.dataset.messageId);if(!message)return;
+        this.editingMessage=message.id;this.commentDrafts.set(this.commentDraftKey(),message.text);this.renderComments();this.host.querySelector('[data-comment-text]')?.focus();return;
+      }
+      if(action==='cancel-edit'){this.commentDrafts.delete(this.commentDraftKey());this.editingMessage=null;this.renderComments();return;}
+      const before=clone(this.diagram);
+      if(action==='resolve')thread.resolved=!thread.resolved;
+      else if(action==='delete')this.diagram.comments=this.diagram.comments.filter(c=>c.id!==thread.id);
+      else return;
+      this.activeComment=null;this.editingMessage=null;this.commit(before);
+    }
+
     message(text){this.host.querySelector('#sketch-status').textContent=text;}
     commit(before){if(JSON.stringify(before)===JSON.stringify(this.diagram))return;this.history.push(before);if(this.history.length>40)this.history.shift();this.future=[];this.write(clone(this.diagram));this.render();}
     add(kind,point){if(this.diagram.nodes.length>=30)return this.notify('На схеме может быть до 30 блоков.');const before=clone(this.diagram),meta=type(kind);let position=null;for(let i=0;i<300;i++){const p=point?{x:point.x+(i%5)*40,y:point.y+Math.floor(i/5)*80}:{x:40+(i%4)*260,y:60+Math.floor(i/4)*120};p.x=clamp(Math.round(p.x/20)*20,8,3380);p.y=clamp(Math.round(p.y/20)*20,8,2342);if(!this.diagram.nodes.some(n=>Math.abs(n.x-p.x)<240&&Math.abs(n.y-p.y)<78)){position=p;break;}}if(!position)return this.notify('Освободите место для нового блока.');const count=this.diagram.nodes.filter(n=>n.kind===meta.id).length,id='n'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);this.diagram.nodes.push({id,kind:meta.id,label:meta.name+(count?' '+(count+1):''),...position});this.selected={nodes:[id],edge:null};this.commit(before);if(!point)this.fit();this.message('Компонент добавлен. Название можно изменить ниже.');}
@@ -215,18 +298,19 @@
     rename(value){const before=clone(this.diagram),node=this.diagram.nodes.find(n=>n.id===this.selected.nodes[0]),edge=this.diagram.edges[this.selected.edge];if(node&&String(value).trim())node.label=String(value).trim().slice(0,60);else if(edge)edge.label=String(value).trim().slice(0,80);this.commit(before);this.message('Название сохранено.');}
 
     async action(action){
-      if(['select','pan','connect'].includes(action)){
-        this.cancelDrag();this.mode=action;this.connectFrom=null;this.render();
-        this.message(action==='connect'?'Выберите блок-отправитель, затем блок-получатель.':action==='pan'?'Перетаскивайте поле для перемещения.':'Выделяйте блоки рамкой. Shift + клик меняет группу. Ctrl+C / Ctrl+V — копия.');return;
+      if(action==='threads'){this.commentsOpen=!this.commentsOpen;this.activeComment=null;this.draftComment=null;this.editingMessage=null;this.render();return;}
+      if(['select','pan','connect','comment'].includes(action)){
+        this.cancelDrag();this.mode=action;this.connectFrom=null;this.closeComments();this.render();
+        this.message(action==='comment'?'Щёлкните по схеме, чтобы оставить комментарий.':action==='connect'?'Выберите блок-отправитель, затем блок-получатель.':action==='pan'?'Перетаскивайте поле для перемещения.':'Выделяйте блоки рамкой. Shift + клик меняет группу. Ctrl+C / Ctrl+V — копия.');return;
       }
       if(action==='zoom-in')return this.zoom(1.25);if(action==='zoom-out')return this.zoom(.8);if(action==='fit')return this.fit();if(action==='fullscreen')return this.toggleFullscreen();
       if(action==='undo'||action==='redo'){
         const from=action==='undo'?this.history:this.future,to=action==='undo'?this.future:this.history;if(!from.length)return;
-        to.push(clone(this.diagram));this.diagram=from.pop();this.selected={nodes:[],edge:null};this.connectFrom=null;this.write(clone(this.diagram));this.render();return;
+        to.push(clone(this.diagram));this.diagram=from.pop();this.activeComment=null;this.draftComment=null;this.editingMessage=null;this.selected={nodes:[],edge:null};this.connectFrom=null;this.write(clone(this.diagram));this.render();return;
       }
       if(action==='delete'){
         const before=clone(this.diagram),ids=new Set(this.selected.nodes);
-        if(ids.size){this.diagram.nodes=this.diagram.nodes.filter(n=>!ids.has(n.id));this.diagram.edges=this.diagram.edges.filter(e=>!ids.has(e.from)&&!ids.has(e.to));}
+        if(ids.size){for(const c of this.diagram.comments)if(ids.has(c.nodeId)){const point=this.commentPosition(c);c.x=point.x;c.y=point.y;delete c.nodeId;}this.diagram.nodes=this.diagram.nodes.filter(n=>!ids.has(n.id));this.diagram.edges=this.diagram.edges.filter(e=>!ids.has(e.from)&&!ids.has(e.to));}
         else if(this.selected.edge!==null)this.diagram.edges.splice(this.selected.edge,1);
         this.selected={nodes:[],edge:null};this.connectFrom=null;this.commit(before);
       }
@@ -264,7 +348,14 @@
     }
 
     pointerDown(e){
-      if(e.button!==0&&e.button!==1)return;e.preventDefault();
+      if(e.target.closest('.sketch-comments-panel')||e.button!==0&&e.button!==1)return;e.preventDefault();
+      const pin=e.target.closest('[data-comment-id]');if(pin){this.openThread(pin.dataset.commentId);return;}
+      if(this.mode==='comment'&&e.button===0){
+        const point=this.point(e),element=e.target.closest('[data-node-id]'),node=this.diagram.nodes.find(n=>n.id===element?.dataset.nodeId);
+        this.draftComment=node?{nodeId:node.id,x:clamp(point.x-node.x,0,220),y:clamp(point.y-node.y,0,58)}:{x:clamp(point.x,0,3600),y:clamp(point.y,0,2400)};
+        this.commentDrafts.delete('new');this.activeComment=null;this.editingMessage=null;this.commentsOpen=true;this.selected={nodes:[],edge:null};this.render();this.host.querySelector('[data-comment-text]')?.focus();return;
+      }
+      this.closeComments();
       const element=e.target.closest('[data-node-id]'),edge=e.target.closest('[data-edge-index]'),port=e.target.closest('[data-port]');
       if(this.mode==='pan'||e.button===1){this.drag={type:'pan',pointerId:e.pointerId,x:e.clientX,y:e.clientY,camera:{...this.camera}};}
       else if(element){
@@ -336,7 +427,7 @@
       if(!this.active(e)||e.isComposing||e.altKey)return;
       if(e.key==='Escape'){
         if(this.expanded()){e.preventDefault();this.toggleFullscreen();}
-        this.connectFrom=null;this.mode='select';if(!this.drag)this.selected={nodes:[],edge:null};this.cancelDrag();return;
+        this.closeComments();this.connectFrom=null;this.mode='select';if(!this.drag)this.selected={nodes:[],edge:null};this.cancelDrag();return;
       }
       if(this.editing(e))return;
       const code=e.code||('Key'+e.key.toUpperCase());
@@ -344,10 +435,12 @@
         e.preventDefault();if(this.drag){this.cancelDrag();return;}
         this.action(code==='KeyY'||e.shiftKey?'redo':'undo');return;
       }
+      if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&code==='KeyC'&&!e.repeat){e.preventDefault();this.action('comment');return;}
       if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&code==='KeyF'&&!e.repeat){e.preventDefault();this.toggleFullscreen();}
     }
 
     key(e){
+      if(this.editing(e))return;const pin=e.target.closest('[data-comment-id]');if(pin){if(e.key==='Enter'||e.key===' '){e.preventDefault();this.openThread(pin.dataset.commentId);}return;}
       const target=e.target.closest('[data-node-id]'),node=this.diagram.nodes.find(n=>n.id===(target?.dataset.nodeId||this.selected.nodes[0]));
       if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();this.action('delete');return;}if(!node)return;
       if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
@@ -365,7 +458,7 @@
       }
     }
   }
-  window.AtlasDiagramEditor=Object.freeze({create:(host,options)=>new Editor(host,options),geometry,bounds,svg,svgStyles,kinds:TYPES.map(t=>t.id)});
+  window.AtlasDiagramEditor=Object.freeze({create:(host,options)=>new Editor(host,options),geometry,bounds,svg,svgStyles,kinds:TYPES.map(t=>t.id),validateComments});
 })();
 
 </script>
@@ -726,7 +819,7 @@ html[data-atlas-access="locked"] .app,html[data-atlas-access="locked"] .sidebar,
 <style>
 .sketch-editor{border:1px solid var(--line,#e3e6ef);border-radius:12px;overflow:clip;background:#fff;min-width:0;margin:16px 0 6px}
 .sketch-editor-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px;background:#fafaff;border-bottom:1px solid #e7e5f1;position:sticky;top:154px;z-index:8;flex-shrink:0;box-shadow:0 3px 10px #302b4605}
-.sketch-tools{display:flex;align-items:center;gap:4px;padding-right:8px;border-right:1px solid #e5e2ef}
+.sketch-tools{display:flex;align-items:center;gap:4px;padding-right:8px;border-right:1px solid #e5e2ef;flex-wrap:wrap;max-width:100%}
 .sketch-tools:last-child{border:0;padding-right:0}.sketch-view-tools{margin-left:auto;flex-wrap:wrap}
 .sketch-editor .btn{font-size:11px;padding:7px 10px;min-height:34px;white-space:nowrap}
 .sketch-editor .btn[aria-pressed=true]{background:var(--accent-soft,#f0edff);color:var(--accent,#6b55ce);border-color:#d4caf4}
@@ -759,6 +852,15 @@ html[data-atlas-access="locked"] .app,html[data-atlas-access="locked"] .sidebar,
 .sketch-marquee{fill:#6b55ce18;stroke:#6b55ce;stroke-width:1.3;stroke-dasharray:5 3;vector-effect:non-scaling-stroke;pointer-events:none}
 .sketch-canvas[data-mode=select]{cursor:crosshair}
 .sketch-group-context{display:flex;gap:14px;align-items:center;justify-content:space-between;width:100%;flex-wrap:wrap}.sketch-group-context strong{color:#6b55ce;font-size:12px}
+.sketch-canvas[data-mode=comment]{cursor:crosshair}.sketch-canvas[data-mode=comment] .sketch-node,.sketch-canvas[data-mode=comment] .sketch-port{cursor:crosshair}
+.sketch-comment-pin{cursor:pointer;outline:none}.sketch-comment-pin-body{fill:#6b55ce;stroke:white;stroke-width:2;filter:drop-shadow(0 2px 3px #30234b30)}.sketch-comment-pin text{font:600 12px Inter,Arial,sans-serif;fill:white;pointer-events:none}.sketch-comment-pin.is-active .sketch-comment-pin-body,.sketch-comment-pin:focus .sketch-comment-pin-body{fill:#45328d;stroke:#cec2ff;stroke-width:3}.sketch-comment-pin.is-resolved .sketch-comment-pin-body{fill:#3e8c71}.sketch-comment-pin.is-draft{pointer-events:none;opacity:.7}
+.sketch-comments-panel{position:absolute;z-index:6;right:12px;top:12px;bottom:12px;width:min(310px,calc(100% - 24px));background:white;border:1px solid #ded8ed;border-radius:11px;box-shadow:0 7px 28px #2a21451c;padding:13px;display:flex;flex-direction:column;gap:10px;overflow:hidden;cursor:default;touch-action:pan-y;text-align:left}.sketch-comments-panel[hidden]{display:none}
+.sketch-comment-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}.sketch-comment-head strong{font-size:13px;color:#423b55}.sketch-comment-close{border:0;background:#f6f3fb;color:#8a7c9f;border-radius:6px;width:27px;height:27px;font-size:21px;line-height:1;cursor:pointer}.sketch-comment-close:hover{background:#ece5fc}
+.sketch-comment-navigation{display:flex;gap:9px;align-items:center;justify-content:space-between;flex-shrink:0}.sketch-comment-navigation>span{font-size:9px;color:#a297ad;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sketch-comment-link{border:0;background:none;padding:2px 0;font-size:9px;color:#83709f;cursor:pointer;text-align:left}.sketch-comment-link:hover{color:#5e44a7;text-decoration:underline}.sketch-comment-link.danger{color:#ba687b}
+.sketch-resolved-filter{display:flex;gap:7px;align-items:center;color:#8b8099;font-size:10px;flex-shrink:0;cursor:pointer}.sketch-resolved-filter input{accent-color:#6b55ce;width:14px;height:14px}
+.sketch-comment-list{overflow:auto;min-height:40px;flex:1}.sketch-comment-item{display:flex;gap:9px;width:100%;text-align:left;border:1px solid #ebe6f3;border-radius:7px;padding:10px;background:#fdfcff;margin-bottom:7px;color:#5b4d6d;cursor:pointer}.sketch-comment-item:hover{border-color:#baace1;background:#f8f5ff}.sketch-comment-number{display:grid;place-items:center;background:#ede6fb;color:#7961a8;min-width:24px;height:24px;border-radius:6px;font-size:10px}.sketch-comment-item>span:last-child{min-width:0}.sketch-comment-item strong{font-weight:500;font-size:10px;line-height:1.7;display:block;overflow-wrap:anywhere}.sketch-comment-item small{display:block;font-size:8px;color:#a397ae;line-height:1.7;margin-top:5px}
+.sketch-comments-panel .sketch-comment-empty{font-size:10px;color:#a296ae;line-height:1.8;padding:10px 0;margin:0}.sketch-comment-messages{flex:1;min-height:36px;overflow:auto;overscroll-behavior:contain;padding-right:3px}.sketch-comment-message{border-bottom:1px solid #f0ebf5;padding:7px 0 9px}.sketch-comment-message>div{display:flex;justify-content:space-between;align-items:center;gap:8px}.sketch-comment-message strong{font-size:10px;color:#665675}.sketch-comment-message time{font-size:8px;color:#b1a7bb;white-space:nowrap}.sketch-comment-message p{font-size:11px!important;line-height:1.7!important;color:#73647f!important;white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0 3px!important}
+.sketch-comment-resolution{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-shrink:0}.sketch-comments-panel .btn{font-size:9px;padding:6px 8px;min-height:30px}.sketch-comment-form{display:grid;gap:7px;border-top:1px solid #ebe5f4;padding-top:10px;flex-shrink:0}.sketch-comment-form label{display:grid;gap:6px;font-size:9px;color:#a294af}.sketch-comment-form textarea{width:100%;min-width:0;min-height:66px;max-height:120px;resize:vertical;border:1px solid #dcd3ed;border-radius:7px;padding:8px;font:11px/1.7 Inter,Arial,sans-serif;color:#62516f;background:#fdfbff;touch-action:auto}.sketch-comment-form textarea:focus{outline:2px solid #d3c6f4;outline-offset:1px}.sketch-comment-send{display:flex;align-items:center;justify-content:space-between;gap:6px}.sketch-comment-send small{font-size:8px;color:#b2a5c0}
 .sketch-empty-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:30px;pointer-events:none}
 .sketch-empty-state[hidden]{display:none}.sketch-empty-state strong{font-size:15px;color:#777088;font-weight:550}.sketch-empty-state span{font-size:12px;line-height:1.8;color:#a69eb6}
 .sketch-context{border-top:1px solid #e8e5f2;min-height:80px;padding:13px 14px;background:white;display:flex;align-items:center;flex-shrink:0}
@@ -770,6 +872,8 @@ html[data-atlas-access="locked"] .app,html[data-atlas-access="locked"] .sidebar,
 @media(max-width:1200px){.sketch-editor-layout{grid-template-columns:130px minmax(0,1fr)}.sketch-view-tools{margin-left:0}.sketch-palette-item small{display:none}.sketch-canvas{height:430px}}
 @media(max-width:700px){.sketch-editor-layout{grid-template-columns:minmax(0,1fr)}.sketch-palette{border-right:0;border-bottom:1px solid #e9e6f2;display:flex;gap:6px;overflow-x:auto;padding:10px}.sketch-palette>strong,.sketch-palette>p{display:none}.sketch-palette-item{width:auto;flex:0 0 auto;min-height:36px;margin:0;padding:8px 10px}.sketch-palette-item span{font-size:10px}.sketch-canvas{height:360px}.sketch-editor-toolbar{gap:6px;padding:8px}.sketch-tools{gap:3px;padding-right:5px}.sketch-editor .btn{font-size:10px;padding:7px 8px;min-height:36px}.sketch-edit-form input{font-size:16px}.sketch-context{padding:12px}.sketch-context-hint{font-size:10px}.sketch-editor:fullscreen .sketch-editor-layout,.sketch-expanded .sketch-editor-layout{display:flex;flex-direction:column}.sketch-editor:fullscreen .sketch-stage,.sketch-expanded .sketch-stage{flex:1;min-height:0}}
 @media print{.sketch-palette,.sketch-editor-toolbar,.sketch-context,.sketch-editor-status{display:none}.sketch-editor-layout{display:block}.sketch-canvas{height:450px}}
+@media(max-width:700px){.sketch-comments-panel{top:auto;bottom:8px;right:8px;width:calc(100% - 16px);height:calc(100% - 16px);padding:10px;gap:6px}.sketch-comment-form{gap:5px;padding-top:7px}.sketch-comment-form textarea{font-size:16px;min-height:52px;max-height:76px;padding:6px}.sketch-comment-head strong{font-size:12px}.sketch-comments-panel .btn{min-height:32px}.sketch-comment-send small{font-size:7px}.sketch-comments-panel .sketch-comment-empty{padding:3px 0;font-size:9px}.sketch-comment-navigation>span{max-width:120px}.sketch-editor:fullscreen .sketch-comments-panel,.sketch-expanded .sketch-comments-panel{position:fixed;inset:auto 12px 12px;width:auto;height:min(60vh,420px);max-height:calc(100vh - 32px)}}
+@media print{.sketch-comment-pin,.sketch-comments-panel{display:none}}
 
 </style>
 <!-- atlas-diagram-styles:end -->
@@ -7979,7 +8083,7 @@ function doAction(action,el){
  }
 }
 // ================= Практикум: задачи, черновики, схемы =================
-function blankTask(){return {status:'todo',checks:[],design:'',reflection:'',work:'',repo:'',revealed:false,snapshot:null,sketch:{nodes:[],edges:[]}};}
+function blankTask(){return {status:'todo',checks:[],design:'',reflection:'',work:'',repo:'',revealed:false,snapshot:null,sketch:{nodes:[],edges:[],comments:[]}};}
 function labTask(id=ui.lab.taskId){return LAB.tasks.find(t=>t.id===Number(id));}
 function taskState(id,create=false){if(!state.tasks[id]&&create)state.tasks[id]=blankTask();return state.tasks[id]||blankTask();}
 function clamp(n,a,b){return Math.max(a,Math.min(b,n));}
@@ -7988,7 +8092,7 @@ function validSketch(raw){
  const seen=new Set();
  const nodes=raw.nodes.map(n=>{if(!n||typeof n.id!=='string'||!/^[a-zA-Z0-9_-]{1,40}$/.test(n.id)||seen.has(n.id)||typeof n.label!=='string'||n.label.length>60||!Number.isFinite(n.x)||!Number.isFinite(n.y))throw new Error('Некорректный блок схемы.');seen.add(n.id);return {id:n.id,label:n.label,kind:AtlasDiagramEditor.kinds.includes(n.kind)?n.kind:'component',x:clamp(n.x,8,3380),y:clamp(n.y,8,2342)};});
  const edges=raw.edges.map(e=>{if(!e||!seen.has(e.from)||!seen.has(e.to)||e.from===e.to||typeof e.label!=='string'||e.label.length>80)throw new Error('Некорректная связь схемы.');const edge={from:e.from,to:e.to,label:e.label};for(const key of ['fromPort','toPort'])if(['left','right','top','bottom'].includes(e[key]))edge[key]=e[key];return edge;});
- return {nodes,edges};
+ return {nodes,edges,comments:AtlasDiagramEditor.validateComments(raw.comments,nodes)};
 }
 function validTasks(raw){
  const clean={};if(raw===undefined)return clean;
@@ -8072,6 +8176,7 @@ function initSketch(t){
  activeSketchEditor?.destroy();
  activeSketchEditor=AtlasDiagramEditor.create($('#sketch-editor'),{
   read:()=>taskState(t.id).sketch,
+  author:()=>state.candidate||'Я',
   write:diagram=>{const task=taskState(t.id,true);task.sketch=diagram;if(task.status==='todo')task.status='design';save();const select=$('#lab-status');if(select)select.value=task.status;},
   notify
  });
