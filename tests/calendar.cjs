@@ -79,7 +79,9 @@ async function browserChecks(){
     await page.getByText('Синхронизировано',{exact:true}).waitFor();
     const final=await read();assert.equal(final.workspace.candidates[0].profile.tasks['1'].status,'done');assert.deepEqual(final.workspace.candidates[0].profile.calendar.learnedTech,['api-1']);
     const downloadEvent=page.waitForEvent('download');await page.getByRole('button',{name:'Сохранить атлас вместе с данными в HTML',exact:true}).click();const download=await downloadEvent;await download.saveAs(path.join(out,'calendar-saved.html'));
-    assert.ok(fs.readFileSync(path.join(out,'calendar-saved.html'),'utf8').includes('learnedTech'));
+    const exportedHtml=fs.readFileSync(path.join(out,'calendar-saved.html'),'utf8');
+    const embedded=JSON.parse(exportedHtml.match(/<script[^>]*id="atlas-profile-data"[^>]*>([\s\S]*?)<\/script>/)[1]);
+    assert.deepEqual(embedded.candidates[0].profile.calendar.learnedTech,['api-1']);
     await page.screenshot({path:path.join(out,'calendar-desktop.png'),fullPage:false});
     await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(out,'calendar-mobile.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
