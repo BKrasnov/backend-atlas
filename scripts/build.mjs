@@ -10,19 +10,25 @@ const editor = await readFile(resolve(root, 'client/diagram-editor.js'), 'utf8')
 const editorCss = await readFile(resolve(root, 'client/diagram-editor.css'), 'utf8');
 const calendar = await readFile(resolve(root, 'client/learning-calendar.js'), 'utf8');
 const calendarCss = await readFile(resolve(root, 'client/learning-calendar.css'), 'utf8');
+const resumes = await readFile(resolve(root, 'client/resumes.js'), 'utf8');
+const resumesCss = await readFile(resolve(root, 'client/resumes.css'), 'utf8');
 const marker = /<!-- atlas-server-sync:start -->[\s\S]*?<!-- atlas-server-sync:end -->\s*/;
 html = html.replace(marker, '');
 html = html.replace(/<!-- atlas-diagram-editor:start -->[\s\S]*?<!-- atlas-diagram-editor:end -->\s*/, '');
 html = html.replace(/<!-- atlas-diagram-styles:start -->[\s\S]*?<!-- atlas-diagram-styles:end -->\s*/, '');
 html = html.replace(/<!-- atlas-learning-calendar:start -->[\s\S]*?<!-- atlas-learning-calendar:end -->\s*/, '');
 html = html.replace(/<!-- atlas-calendar-styles:start -->[\s\S]*?<!-- atlas-calendar-styles:end -->\s*/, '');
+html = html.replace(/<!-- atlas-resumes:start -->[\s\S]*?<!-- atlas-resumes:end -->\s*/, '');
+html = html.replace(/<!-- atlas-resumes-styles:start -->[\s\S]*?<!-- atlas-resumes-styles:end -->\s*/, '');
 const firstCodeScript = html.indexOf('<script>');
 if (firstCodeScript < 0) throw Error('Не найдена точка подключения атласа.');
 const block = '<!-- atlas-diagram-editor:start -->\n<script>\n' + editor.replace(/<\/script/gi, '<\\/script') + '\n</script>\n<!-- atlas-diagram-editor:end -->\n<!-- atlas-server-sync:start -->\n<script>\n' + sync.replace(/<\/script/gi, '<\\/script') + '\n</script>\n<!-- atlas-server-sync:end -->\n';
 const calendarBlock = '<!-- atlas-learning-calendar:start -->\n<script>\n' + calendar.replace(/<\/script/gi, '<\\/script') + '\n</script>\n<!-- atlas-learning-calendar:end -->\n';
-html = html.slice(0, firstCodeScript) + calendarBlock + block + html.slice(firstCodeScript);
+const resumesBlock = '<!-- atlas-resumes:start -->\n<script>\n' + resumes.replace(/<\/script/gi, '<\\/script') + '\n</script>\n<!-- atlas-resumes:end -->\n';
+html = html.slice(0, firstCodeScript) + resumesBlock + calendarBlock + block + html.slice(firstCodeScript);
 html = html.replace('</head>', '<!-- atlas-diagram-styles:start -->\n<style>\n' + editorCss + '\n</style>\n<!-- atlas-diagram-styles:end -->\n</head>');
 html = html.replace('</head>', '<!-- atlas-calendar-styles:start -->\n<style>\n' + calendarCss + '\n</style>\n<!-- atlas-calendar-styles:end -->\n</head>');
+html = html.replace('</head>', '<!-- atlas-resumes-styles:start -->\n<style>\n' + resumesCss + '\n</style>\n<!-- atlas-resumes-styles:end -->\n</head>');
 // Keep the downloadable source fully standalone, with its inline sync client.
 await writeFile(source, html, 'utf8');
 // A public deployment must never publish a candidate snapshot embedded in a saved HTML.

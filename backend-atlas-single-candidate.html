@@ -6,6 +6,59 @@
 <meta name="color-scheme" content="light">
 <meta name="description" content="Backend Atlas: личный атлас одного кандидата. Технологии, учебный план, вопросы, интервью и 31 практическая задача. Сохранение в автономный HTML вместе с данными.">
 <title>Backend Atlas — один кандидат</title>
+<!-- atlas-resumes:start -->
+<script>
+/* Resume files stay in the authenticated workspace JSON, not the public build. */
+(() => {
+  'use strict';
+  const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let previewURL=null;
+  function checkedText(value,max){if(typeof value!=='string'||value.length>max)throw Error('Некорректное описание резюме.');return value;}
+  function checkedChunks(value,limit,signature){
+    if(!Array.isArray(value)||!value.length||value.length>100||value.some(s=>typeof s!=='string'||s.length>32000))throw Error('Некорректный файл резюме.');
+    const encoded=value.join('');
+    if(encoded.length>Math.ceil(limit/3)*4||!encoded||encoded.length%4||!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded))throw Error('Некорректный формат или размер файла резюме.');
+    const raw=atob(encoded);if(raw.length>limit||!raw.startsWith(signature))throw Error('Нужен корректный PDF или PNG предпросмотра.');
+    return [...value];
+  }
+  function validate(raw){
+    if(raw===undefined)return [];
+    if(!Array.isArray(raw)||raw.length>10)throw Error('В списке может быть до 10 резюме.');
+    const seen=new Set();let total=0;
+    return raw.map(r=>{
+      if(!r||typeof r.id!=='string'||!/^[A-Za-z0-9_-]{1,100}$/.test(r.id)||seen.has(r.id)||typeof r.draft!=='boolean'||!Number.isInteger(r.experienceYears)||r.experienceYears<0||r.experienceYears>60||!Number.isInteger(r.pages)||r.pages<1||r.pages>30||typeof r.fileName!=='string'||!/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,99}\.pdf$/i.test(r.fileName)||typeof r.addedAt!=='string'||r.addedAt.length>64||!Number.isFinite(Date.parse(r.addedAt)))throw Error('Некорректная версия резюме.');
+      if(!Array.isArray(r.tags)||r.tags.length>15)throw Error('Некорректные теги резюме.');seen.add(r.id);
+      const pdfChunks=checkedChunks(r.pdfChunks,2*1024*1024,'%PDF-');
+      if(r.previewChunks!==undefined&&!Array.isArray(r.previewChunks))throw Error('Некорректный предпросмотр резюме.');
+      const previewChunks=r.previewChunks?.length?checkedChunks(r.previewChunks,1024*1024,'\x89PNG\r\n\x1a\n'):[];
+      total+=pdfChunks.join('').length+previewChunks.join('').length;if(total>10*1024*1024)throw Error('Список резюме превышает допустимый размер.');
+      return {id:r.id,title:checkedText(r.title,160),summary:checkedText(r.summary,1000),tags:r.tags.map(t=>checkedText(t,60)),draft:r.draft,experienceYears:r.experienceYears,pages:r.pages,fileName:r.fileName,addedAt:r.addedAt,pdfChunks,previewChunks};
+    });
+  }
+  function bytes(chunks){return Uint8Array.from(atob(chunks.join('')),c=>c.charCodeAt(0));}
+  function releasePreview(){if(previewURL){URL.revokeObjectURL(previewURL);previewURL=null;}}
+  function mountPreview(host,resume){
+    releasePreview();const image=host.querySelector('[data-resume-image]');if(!image||!resume?.previewChunks.length)return;
+    previewURL=URL.createObjectURL(new Blob([bytes(resume.previewChunks)],{type:'image/png'}));image.src=previewURL;
+  }
+  function download(resume){
+    const url=URL.createObjectURL(new Blob([bytes(resume.pdfChunks)],{type:'application/pdf'}));const link=document.createElement('a');
+    link.href=url;link.download=resume.fileName;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  function render(resumes,selectedId){
+    if(!resumes.length)return '<div class="resume-empty"><h2>Резюме пока нет</h2><p>Сохранённые версии резюме кандидата появятся здесь.</p></div>';
+    const selected=resumes.find(r=>r.id===selectedId);
+    return `<div class="resume-list">${resumes.map(r=>{
+      const encoded=r.pdfChunks.join(''),size=Math.round((encoded.length*3/4-(encoded.endsWith('==')?2:encoded.endsWith('=')?1:0))/1024);
+      const date=new Date(r.addedAt).toLocaleDateString('ru-RU');
+      return `<article class="resume-card"><div class="resume-file-mark" aria-hidden="true"><strong>PDF</strong><span>${r.pages} стр.</span></div><div class="resume-card-content"><div class="resume-card-heading"><h2>${esc(r.title)}</h2>${r.draft?'<span class="resume-draft">Черновик</span>':''}</div><p>${esc(r.summary)}</p><div class="resume-tags">${r.tags.map(t=>`<span>${esc(t)}</span>`).join('')}</div><div class="resume-meta"><span>${r.draft?'Условный стаж':'Стаж'}: ${r.experienceYears} лет</span><span>PDF · ${r.pages} стр. · ${size} КБ</span><span>Добавлено ${esc(date)}</span></div></div><div class="resume-card-actions"><button class="btn" id="resume-view-${esc(r.id)}" data-resume-view="${esc(r.id)}" aria-label="Просмотреть резюме" aria-expanded="${r.id===selectedId}" aria-controls="resume-preview-panel">${r.id===selectedId?'Скрыть просмотр':'Просмотреть'}</button><button class="btn btn-primary" data-resume-download="${esc(r.id)}" aria-label="Скачать резюме PDF">Скачать PDF</button></div></article>`;
+    }).join('')}</div>${selected?`<section class="resume-preview" id="resume-preview-panel" aria-label="Просмотр резюме"><div class="resume-preview-heading"><div><span>ПРЕДПРОСМОТР</span><h2>${esc(selected.title)}</h2></div><button class="btn" data-resume-close aria-label="Закрыть просмотр">Закрыть</button></div>${selected.previewChunks.length?`<div class="resume-paper"><img data-resume-image alt="Предпросмотр первой страницы резюме ${esc(selected.title)}. Текстовая версия доступна в PDF."></div>`:'<p class="resume-preview-note">Предпросмотр недоступен. Документ можно скачать в PDF.</p>'}<p class="resume-preview-note">Для выделения текста и печати скачайте исходный PDF.</p></section>`:''}`;
+  }
+  window.AtlasResumes=Object.freeze({validate,render,mountPreview,releasePreview,download});
+})();
+
+</script>
+<!-- atlas-resumes:end -->
 <!-- atlas-learning-calendar:start -->
 <script>
 /* Fixed learning dates are derived from the program; only completion is stored. */
@@ -897,6 +950,17 @@ html[data-atlas-access="locked"] .app,html[data-atlas-access="locked"] .sidebar,
 
 </style>
 <!-- atlas-calendar-styles:end -->
+<!-- atlas-resumes-styles:start -->
+<style>
+.resume-list{display:grid;gap:16px}.resume-card{display:grid;grid-template-columns:68px minmax(0,1fr) auto;gap:20px;align-items:start;background:white;border:1px solid var(--line);border-radius:13px;padding:23px;min-width:0}
+.resume-file-mark{width:64px;height:79px;background:#f2eefe;border:1px solid #dfd5f9;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#8370b5}.resume-file-mark strong{font-size:16px;letter-spacing:.7px}.resume-file-mark span{font-size:9px;color:#a298b5}.resume-card-content{min-width:0}.resume-card-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}.resume-card h2{font-size:18px;line-height:1.4;letter-spacing:-.3px;overflow-wrap:anywhere}.resume-draft{font-size:9px;border:1px solid #e8dcb9;border-radius:5px;color:#9d7a35;background:#fff9ea;padding:3px 7px}.resume-card p{font-size:12px;line-height:1.8;color:var(--muted);max-width:720px;overflow-wrap:anywhere;margin-bottom:12px}
+.resume-tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}.resume-tags span{font-size:10px;color:#8877a8;background:#f6f3fc;border:1px solid #ece6f7;padding:4px 8px;border-radius:5px}.resume-meta{display:flex;gap:7px 16px;flex-wrap:wrap;font-size:10px;color:#a39aad;line-height:1.8}.resume-meta>span:first-child{color:#8b7ba5}.resume-card-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;padding-top:1px}.resume-card-actions .btn{font-size:11px;padding:9px 12px;min-height:36px}
+.resume-preview{margin-top:22px;border:1px solid var(--line);border-radius:13px;background:white;padding:22px;min-width:0;scroll-margin-top:95px}.resume-preview-heading{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:19px}.resume-preview-heading span{font-size:9px;letter-spacing:1.3px;color:#a294b1}.resume-preview-heading h2{font-size:16px;line-height:1.6;margin-top:6px;overflow-wrap:anywhere}.resume-preview-heading .btn{font-size:11px;flex-shrink:0}.resume-paper{border:1px solid #e9e5ef;border-radius:6px;background:#f7f8fc;padding:18px;overflow:hidden}.resume-paper img{display:block;width:100%;max-width:900px;height:auto;margin:0 auto;background:white;box-shadow:0 2px 12px #33304d10}.resume-preview-note{font-size:10px;line-height:1.8;color:#a296ad;margin-top:14px}.resume-empty{padding:40px;border:1px dashed #ded8eb;border-radius:12px;background:white;text-align:center}.resume-empty h2{font-size:17px;margin-bottom:10px}.resume-empty p{font-size:12px;color:var(--muted);line-height:1.8}
+@media(max-width:1100px){.resume-card{grid-template-columns:64px minmax(0,1fr)}.resume-card-actions{grid-column:2;justify-content:flex-start;padding-top:0}}
+@media(max-width:600px){.resume-card{padding:17px;gap:14px;grid-template-columns:48px minmax(0,1fr)}.resume-file-mark{width:48px;height:63px}.resume-file-mark strong{font-size:13px}.resume-card h2{font-size:15px}.resume-card p{font-size:11px}.resume-card-actions{grid-column:1/-1;justify-content:flex-start}.resume-card-actions .btn{font-size:11px;min-height:40px}.resume-meta{font-size:9px;gap:4px 10px}.resume-tags{margin-bottom:12px}.resume-preview{padding:15px}.resume-preview-heading{gap:10px;align-items:flex-start}.resume-preview-heading h2{font-size:13px}.resume-preview-heading .btn{font-size:10px;padding:7px 9px}.resume-paper{padding:5px}.resume-empty{padding:28px 18px}}
+
+</style>
+<!-- atlas-resumes-styles:end -->
 </head>
 <body>
 <a class="skip" href="#main-content">Перейти к содержимому</a>
@@ -7860,7 +7924,7 @@ const titles = {technologies:'Технологии',topics:'План обуче�
 const techItems=DATA.techGroups.flatMap(g=>g.items), topicItems=DATA.topicGroups.flatMap(g=>g.items);
 const techIds=new Set(techItems.map(x=>x.id)), topicIds=new Set(topicItems.map(x=>String(x.id))), questionIds=new Set(DATA.questions.map(x=>String(x.id)));
 const STORAGE_KEY='backend-atlas-profile-v1';
-const defaultState=()=>({version:1,candidate:'',tech:{},techReview:{},techComments:{},topics:{},scores:{},notes:{},favorites:[],tasks:{},calendar:{learnedTech:[]},updatedAt:null});
+const defaultState=()=>({version:1,candidate:'',tech:{},techReview:{},techComments:{},topics:{},scores:{},notes:{},favorites:[],tasks:{},calendar:{learnedTech:[]},resumes:[],updatedAt:null});
 const TECH_VALUES=['yes','no','heard'];
 const TOPIC_VALUES=['todo','plan','learning','done'];
 const TECH_LABEL={yes:'Да',no:'Нет',heard:'Слышал'};
@@ -8284,11 +8348,11 @@ const reqLabels={unset:'Не задано',required:'Обязательно',des
 const evalLabels={unverified:'Не проверено',confirmed:'Подтверждено',partial:'Частично',gap:'Не подтверждено'};
 const itemStatus={pending:'Не задан',asked:'Задан',skipped:'Пропущен',return:'Вернуться'};
 const decisions={pending:'Решение не принято',next:'Нужна дополнительная проверка',positive:'Продолжить процесс',pause:'Пауза',negative:'Не подходит этой вакансии'};
-const extraRoutes=['vacancy','profile','interview','summary','bot-project','calendar'];
+const extraRoutes=['vacancy','profile','resumes','interview','summary','bot-project','calendar'];
 const calendarView={month:null,filter:'all',openWeeks:new Set(),initialized:false};
-const extraTitles={vacancy:'Вакансия и редактор',profile:'Профиль кандидата',interview:'Собеседование',summary:'Итог оценки','bot-project':'Telegram Bot Builder',calendar:'Календарь'};
+const extraTitles={vacancy:'Вакансия и редактор',profile:'Профиль кандидата',resumes:'Список резюме',interview:'Собеседование',summary:'Итог оценки','bot-project':'Telegram Bot Builder',calendar:'Календарь'};
 let ws=null,blockPersistence=false,pendingX=null;
-const xu={editor:'tech',openEvidence:new Set(),activeInterview:null,track:'all',showHidden:false};
+const xu={editor:'tech',openEvidence:new Set(),activeInterview:null,track:'all',showHidden:false,resumePreview:null};
 function text(v,max=10000){if(v===undefined||v===null)return '';if(typeof v!=='string'||v.length>max)throw Error('Некорректный текст или превышен лимит длины.');return v;}
 function map(v){if(v===undefined)return {};if(!v||typeof v!=='object'||Array.isArray(v))throw Error('Ожидался объект.');return v;}
 function array(v,max=2000){if(v===undefined)return [];if(!Array.isArray(v)||v.length>max)throw Error('Некорректный список или превышен лимит.');return v;}
@@ -8307,7 +8371,7 @@ window.atlasTaskVisible=t=>!t.project;
 function titleOf(type,id){return type==='question'?DATA.questions.find(q=>q.id===id)?.title:LAB.tasks.find(t=>t.id===id)?.title;}
 function cleanInterview(raw){raw=map(raw);const seen=new Set();const items=array(raw.items,300).map(it=>{it=map(it);if(!['question','task'].includes(it.type)||!titleOf(it.type,it.id))throw Error('Неизвестный элемент интервью.');const key=it.type+':'+it.id;if(seen.has(key))throw Error('Повтор пункта в интервью.');seen.add(key);if(!Object.hasOwn(itemStatus,it.status||'pending'))throw Error('Неизвестный статус интервью.');return {type:it.type,id:it.id,status:it.status||'pending',minutes:Math.min(180,Math.max(1,Number(it.minutes)||10))};});
  return {items,elapsed:Math.min(365*86400000,Math.max(0,Number(raw.elapsed)||0)),since:Number.isFinite(raw.since)&&raw.since>0&&raw.since<=Date.now()+60000?raw.since:null};}
-function cleanProfile(raw){const p=baseValidate(raw);blankExtra(p);for(const [id,v] of Object.entries(map(raw.assessment))){if(!techIds.has(id))throw Error('Неизвестная технология в проверке.');map(v);if(!Object.hasOwn(evalLabels,v.status||'unverified'))throw Error('Неизвестный статус проверки.');p.assessment[id]={status:v.status||'unverified',where:text(v.where,4000),contribution:text(v.contribution,4000),challenge:text(v.challenge,4000),review:text(v.review,4000)};}
+function cleanProfile(raw){const p=baseValidate(raw);blankExtra(p);p.resumes=AtlasResumes.validate(raw.resumes);for(const [id,v] of Object.entries(map(raw.assessment))){if(!techIds.has(id))throw Error('Неизвестная технология в проверке.');map(v);if(!Object.hasOwn(evalLabels,v.status||'unverified'))throw Error('Неизвестный статус проверки.');p.assessment[id]={status:v.status||'unverified',where:text(v.where,4000),contribution:text(v.contribution,4000),challenge:text(v.challenge,4000),review:text(v.review,4000)};}
  for(const [id,v] of Object.entries(map(raw.selfAnswers))){if(!questionIds.has(id))throw Error('Неизвестный ответ.');p.selfAnswers[id]=text(v,12000);}
  for(const [id,v] of Object.entries(map(raw.candidateTaskAnswers))){if(!LAB.tasks.some(t=>String(t.id)===id))throw Error('Неизвестная задача.');p.candidateTaskAnswers[id]=text(v,12000);}
  p.interview=cleanInterview(raw.interview);const s=map(raw.summary);for(const f of ['strengths','gaps','next'])p.summary[f]=text(s[f],10000);p.summary.decision=Object.hasOwn(decisions,s.decision)?s.decision:'pending';return p;}
@@ -8363,6 +8427,16 @@ function saveEdit(type,id){const title=$('#x-edit-title').value.trim(),group=$('
 function categoryStat(candidate,category,r){const qs=DATA.questions.filter(q=>q.category===category&&!isHidden('questions',q.id,r));const scores=qs.map(q=>candidate.profile.scores[q.id]).filter(v=>Number.isInteger(v));return {rated:scores.length,total:qs.length,average:scores.length?(scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1):null};}
 function requiredStat(candidate,r){const ids=techItems.filter(t=>requirement(t.id,r)==='required'&&!isHidden('tech',t.id,r)).map(t=>t.id);return {total:ids.length,confirmed:ids.filter(id=>candidate.profile.assessment?.[id]?.status==='confirmed').length,unverified:ids.filter(id=>!candidate.profile.assessment?.[id]||candidate.profile.assessment[id].status==='unverified').length};}
 
+function renderResumes(){
+ $('#page-intro').innerHTML=heading('ДОКУМЕНТЫ КАНДИДАТА','Список резюме','Сохранённые версии резюме: просмотрите документ или скачайте исходный PDF.','PDF');
+ $('#results').innerHTML=AtlasResumes.render(state.resumes,xu.resumePreview);
+ AtlasResumes.mountPreview($('#results'),state.resumes.find(r=>r.id===xu.resumePreview));
+}
+document.addEventListener('click',e=>{
+ const view=e.target.closest('[data-resume-view]');if(view){xu.resumePreview=xu.resumePreview===view.dataset.resumeView?null:view.dataset.resumeView;renderPage();document.getElementById('resume-view-'+view.dataset.resumeView)?.focus({preventScroll:true});return;}
+ if(e.target.closest('[data-resume-close]')){const id=xu.resumePreview;xu.resumePreview=null;renderPage();document.getElementById('resume-view-'+id)?.focus({preventScroll:true});return;}
+ const download=e.target.closest('[data-resume-download]');if(download){const resume=state.resumes.find(r=>r.id===download.dataset.resumeDownload);if(resume)AtlasResumes.download(resume);}
+});
 function calendarModel(){return AtlasLearningCalendar.schedule({tasks:LAB.tasks,technologies:techItems.filter(t=>!isHidden('tech',t.id)),profile:state});}
 function calendarTechControl(t){
  const week=AtlasLearningCalendar.technologyWeek(t.id),done=state.calendar.learnedTech.includes(t.id);
@@ -8531,10 +8605,10 @@ const oldUpdate=updateSidebar;
 updateSidebar=function(){if(!ws){oldUpdate();return;}const items=techItems.filter(t=>!isHidden('tech',t.id)),count=items.filter(t=>state.tech[t.id]).length,pct=items.length?Math.round(count/items.length*100):0;$('#side-percent').textContent=pct+'%';$('#side-fill').style.width=pct+'%';$('#side-progress-caption').textContent=`${count} из ${items.length} видимых технологий отмечено`;
  const badge=$('#calendar-nav-count');if(badge){const model=calendarModel(),late=model.overdueTasks+model.overdueTech;badge.textContent=late?String(late):'18';badge.classList.toggle('cal-nav-overdue',late>0);badge.setAttribute('aria-label',late?'Просрочено элементов: '+late:'18 недель');}
  };
-renderPage=function(){if(!ws){baseRender();return;}if(extraRoutes.includes(ui.route)){
+renderPage=function(){AtlasResumes.releasePreview();if(!ws){baseRender();return;}if(extraRoutes.includes(ui.route)){
  activeSketchEditor?.destroy();activeSketchEditor=null;
- $('#searchbar').hidden=['summary','profile','calendar'].includes(ui.route);$('.select-area').hidden=true;$('#category-filter').innerHTML='<option value="all">Все</option>';$('#search-action').innerHTML='';$('#view-toolbar').hidden=true;$('#result-meta').hidden=true;$('#view-toolbar').innerHTML='';$('#result-meta').innerHTML='';
- const renderers={vacancy:renderVacancy,profile:renderProfile,interview:renderInterview,summary:renderSummary,'bot-project':renderRepo,calendar:renderCalendar};renderers[ui.route]();$('#search-clear').hidden=!ui.search[ui.route];
+ $('#searchbar').hidden=['summary','profile','calendar','resumes'].includes(ui.route);$('.select-area').hidden=true;$('#category-filter').innerHTML='<option value="all">Все</option>';$('#search-action').innerHTML='';$('#view-toolbar').hidden=true;$('#result-meta').hidden=true;$('#view-toolbar').innerHTML='';$('#result-meta').innerHTML='';
+ const renderers={vacancy:renderVacancy,profile:renderProfile,resumes:renderResumes,interview:renderInterview,summary:renderSummary,'bot-project':renderRepo,calendar:renderCalendar};renderers[ui.route]();$('#search-clear').hidden=!ui.search[ui.route];
  }else{ $('.select-area').hidden=false;baseRender();$('#page-intro').insertAdjacentHTML('afterbegin',contextBar());if(ui.route==='technologies'){const actions=$('#search-action');actions.innerHTML=`${xButton('Добавить','edit','data-type="tech"')} ${xButton(xu.showHidden?'Убрать скрытые':'Показать скрытые','toggle-hidden')}`;}
  if(ui.route==='questions'){for(const q of DATA.questions){const host=$(`#question-${q.id} .q-controls`);if(host)host.insertAdjacentHTML('beforeend',xButton('Правка','edit',`data-type="questions" data-id="${q.id}"`));}$('#search-action').insertAdjacentHTML('beforeend',' '+xButton('Добавить','edit','data-type="questions"'));}
  if(ui.route==='topics')$('#search-action').insertAdjacentHTML('beforeend',' '+xButton('Добавить','edit','data-type="topics"'));
@@ -8545,10 +8619,10 @@ renderPage=function(){if(!ws){baseRender();return;}if(extraRoutes.includes(ui.ro
 window.removeEventListener('hashchange',baseSetRoute);
 setRoute=function(){
  if(location.hash.startsWith('#calendar/')){const week=Number(location.hash.split('/')[1]);if(Number.isInteger(week)&&week>=1&&week<=18){calendarView.openWeeks.add(week);calendarView.month=AtlasLearningCalendar.weekRange(week).due.slice(0,7);calendarView.filter='all';}}
- if(location.hash==='#candidates'){location.replace('#profile');return;}baseSetRoute();if(extraRoutes.includes(ui.route)){const placeholders={vacancy:'Поиск материалов в редакторе…',profile:'',interview:'Поиск вопросов и задач для встречи…',summary:'', 'bot-project':'Поиск задач по своему проекту…',calendar:''};$('#search').placeholder=placeholders[ui.route];$('#search').setAttribute('aria-label',placeholders[ui.route]||'Поиск');}if(ui.route==='calendar'&&/^#calendar\/([1-9]|1[0-8])$/.test(location.hash))requestAnimationFrame(()=>document.getElementById('calendar-week-'+location.hash.split('/')[1])?.scrollIntoView({block:'start'}));};
+ if(location.hash==='#candidates'){location.replace('#profile');return;}baseSetRoute();if(extraRoutes.includes(ui.route)){const placeholders={vacancy:'Поиск материалов в редакторе…',profile:'',resumes:'',interview:'Поиск вопросов и задач для встречи…',summary:'', 'bot-project':'Поиск задач по своему проекту…',calendar:''};$('#search').placeholder=placeholders[ui.route];$('#search').setAttribute('aria-label',placeholders[ui.route]||'Поиск');}if(ui.route==='calendar'&&/^#calendar\/([1-9]|1[0-8])$/.test(location.hash))requestAnimationFrame(()=>document.getElementById('calendar-week-'+location.hash.split('/')[1])?.scrollIntoView({block:'start'}));};
 window.addEventListener('hashchange',setRoute);
 function init(){boot();for(const rt of extraRoutes){routes.push(rt);titles[rt]=extraTitles[rt];ui.search[rt]='';ui.category[rt]='all';ui.status[rt]='all';}
- const nav=$('.nav-list');nav.insertAdjacentHTML('beforeend',`<a class="nav-link" href="#bot-project" data-route="bot-project">${icon('code')}<span>Telegram Bot Builder</span><span class="nav-number">13</span></a><div class="x-nav-caption">ОЦЕНКА И ИНТЕРВЬЮ</div>${[['vacancy','layers'],['profile','user'],['interview','clock'],['summary','clipboard']].map(([rt,ic])=>`<a class="nav-link" href="#${rt}" data-route="${rt}">${icon(ic)}<span>${extraTitles[rt]}</span></a>`).join('')}`);
+ const nav=$('.nav-list');nav.insertAdjacentHTML('beforeend',`<a class="nav-link" href="#bot-project" data-route="bot-project">${icon('code')}<span>Telegram Bot Builder</span><span class="nav-number">13</span></a><div class="x-nav-caption">ОЦЕНКА И ИНТЕРВЬЮ</div>${[['vacancy','layers'],['profile','user'],['resumes','file'],['interview','clock'],['summary','clipboard']].map(([rt,ic])=>`<a class="nav-link" href="#${rt}" data-route="${rt}">${icon(ic)}<span>${extraTitles[rt]}</span></a>`).join('')}`);
  $('.nav-link[data-route="tasks"]').insertAdjacentHTML('beforebegin',`<a class="nav-link" href="#calendar" data-route="calendar">${icon('clock')}<span>Календарь</span><span class="nav-number" id="calendar-nav-count">18</span></a>`);
  const projectNav=$('.nav-link[data-route="bot-project"]');$('.nav-link[data-route="tasks"]').insertAdjacentElement('afterend',projectNav);
  $('.profile-field').insertAdjacentHTML('afterend','<label class="x-role-label" for="x-role-select">ВАКАНСИЯ / ШАБЛОН</label><select id="x-role-select" class="x-profile-select"></select>');$('#profile-hint').textContent='Один профиль: ответы, оценки и личный план обучения.';$('.version').textContent='v5.2';$('.top-actions').insertAdjacentHTML('beforeend',`<button class="btn btn-primary" data-x="atlas-export" aria-label="Сохранить атлас вместе с данными в HTML" title="Сохранить атлас вместе с данными в HTML">${icon('download')}<span>Сохранить атлас · HTML</span></button>`);document.body.insertAdjacentHTML('beforeend','<input id="x-import-answers" type="file" accept="application/json,.json" hidden>');$('#x-import-answers').addEventListener('change',e=>importAnswers(e.target.files[0]));$('#dialog').addEventListener('close',()=>{pendingX=null;});$('#candidate').value=state.candidate;syncSidebar();setRoute();
