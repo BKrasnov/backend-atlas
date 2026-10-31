@@ -67,11 +67,11 @@
   const START='2026-10-26',DAY=86400000;
   const TECHNOLOGY_WEEKS=[
     ['api-1','api-2','api-3','data-1','infra-3','infra-4','testing-1','testing-2'],
+    ['api-7','api-8','infra-8'],
     ['storage-1','storage-2','storage-3','cloud-1','infra-5'],
     ['api-4','api-5','testing-4','observability-4'],
     ['data-4','testing-5','observability-1'],
     ['messaging-1','messaging-4'],
-    ['api-7','api-8','infra-8'],
     ['messaging-2','messaging-3'],
     ['data-2','testing-3','cicd-2'],
     ['data-3','infra-1'],
@@ -3291,7 +3291,8 @@ html[data-atlas-access="locked"] .app,html[data-atlas-access="locked"] .sidebar,
     ]
   }
 }</script>
-<script id="atlas-tasks-data" type="application/json">{
+<script id="atlas-tasks-data" type="application/json">
+{
   "date": "2026-10-16",
   "sources": {
     "http": [
@@ -3581,6 +3582,163 @@ html[data-atlas-access="locked"] .app,html[data-atlas-access="locked"] .sidebar,
         "pg-lock"
       ],
       "id": 1
+    },
+    {
+      "title": "Realtime: планшет и большой экран",
+      "level": "base",
+      "icon": "activity",
+      "tags": [
+        "WebSocket",
+        "SSE",
+        "Redis Pub/Sub",
+        "Версии"
+      ],
+      "topics": [
+        20,
+        22,
+        32,
+        36,
+        58,
+        63,
+        78
+      ],
+      "prereq": [
+        1
+      ],
+      "brief": "На планшете оператор меняет фильтр, на большом экране обновляется состояние. Пользователи могут быть подключены к разным экземплярам API. Спроектируйте доставку и восстановление, затем покажите демо в двух вкладках.",
+      "outcome": "Общий фильтр, push-обновления, версии и корректное переподключение.",
+      "scope": "Одна именованная рабочая область. Команды идут по HTTP, серверные изменения — через SSE или WebSocket.",
+      "load": "Учебный стенд: 2 API-процесса, 10 вкладок, не больше 5 изменений фильтра в секунду.",
+      "requirements": [
+        "Изменение фиксируется в БД, обе вкладки получают согласованную новую версию.",
+        "После минуты офлайн экран восстанавливает актуальное состояние.",
+        "Два оператора не перезаписывают изменения незаметно; конфликт имеет явный ответ.",
+        "Пользователь другой рабочей области не получает ни данные, ни события."
+      ],
+      "design": [
+        "Нарисуйте команды HTTP отдельно от потока событий и межсерверной рассылки.",
+        "Спроектируйте version и expected_version; выберите конфликтную политику.",
+        "Разберите гонку: получен snapshot, но подписка ещё не установлена.",
+        "Выберите способ восстановления пропущенных событий и сценарий сбоя межсерверной шины."
+      ],
+      "theory": [
+        [
+          "SSE или WebSocket",
+          "SSE — серверный поток событий; обратные команды можно передавать HTTP. WebSocket подходит, когда нужен двусторонний канал. Выбор протокола сам по себе не восстанавливает состояние."
+        ],
+        [
+          "Pub/Sub — не журнал",
+          "Redis Pub/Sub не хранит события для отсутствующего подписчика. Для восстановления нужен snapshot, собственный журнал или другой сохраняемый механизм."
+        ]
+      ],
+      "answerDiagram": {
+        "nodes": [
+          {
+            "id": "1",
+            "label": "Планшет",
+            "x": 40,
+            "y": 40
+          },
+          {
+            "id": "2",
+            "label": "API A",
+            "x": 335,
+            "y": 40
+          },
+          {
+            "id": "3",
+            "label": "PostgreSQL",
+            "x": 630,
+            "y": 40
+          },
+          {
+            "id": "4",
+            "label": "API B",
+            "x": 40,
+            "y": 190
+          },
+          {
+            "id": "5",
+            "label": "Большой экран",
+            "x": 335,
+            "y": 190
+          },
+          {
+            "id": "6",
+            "label": "Redis Pub/Sub",
+            "x": 630,
+            "y": 190
+          }
+        ],
+        "edges": [
+          {
+            "from": "1",
+            "to": "2",
+            "label": "PATCH + version"
+          },
+          {
+            "from": "2",
+            "to": "3",
+            "label": "commit state"
+          },
+          {
+            "from": "2",
+            "to": "6",
+            "label": "сигнал"
+          },
+          {
+            "from": "6",
+            "to": "4",
+            "label": "сигнал"
+          },
+          {
+            "from": "4",
+            "to": "5",
+            "label": "SSE / WS"
+          },
+          {
+            "from": "4",
+            "to": "3",
+            "label": "snapshot"
+          }
+        ]
+      },
+      "solution": [
+        "В БД храните workspace_state(id, payload, version). PATCH с expected_version атомарно меняет состояние и версию. Конфликт возвращает текущую версию, а не молча затирает чужое изменение.",
+        "Для учебного варианта сначала устанавливайте подписку и буферизуйте события, затем читайте snapshot; применяйте только более новые версии. При разрыве или пропуске версии снова запрашивайте snapshot. Если используется replay, храните ограниченный журнал и сообщайте клиенту, когда его cursor слишком стар.",
+        "Pub/Sub используйте как ускоряющий сигнал. Чтобы пропущенный publish при живом соединении не оставил экран старым навсегда, добавьте outbox/сверку либо периодическую проверку версии. Авторизуйте как HTTP, так и подписку на рабочую область. Ограничьте буфер медленного клиента."
+      ],
+      "tradeoff": "Для фильтра важнее последнее состояние, чем доставка каждой промежуточной версии. Для финансового журнала такая потеря промежуточных событий была бы другой задачей.",
+      "contract": "GET   /workspaces/{id}/state  → {version:7, filters:{...}}\nPATCH /workspaces/{id}/state  body {expected_version:7, filters:{...}}\nGET   /workspaces/{id}/events → text/event-stream\nSSE: id: 8\n     event: state_changed\n     data: {\"version\":8}",
+      "build": [
+        "Реализуйте state API с версией и проверкой доступа.",
+        "Добавьте SSE или WebSocket и два тестовых клиента.",
+        "Запустите два API-процесса и межсерверную рассылку.",
+        "Добавьте snapshot/reconnect, обнаружение пропуска версии и страховочную сверку.",
+        "Воспроизведите offline, конфликт двух операторов и отказ Redis."
+      ],
+      "tests": [
+        "Изменение на планшете видно на экране, подключённом к другому API.",
+        "После офлайн экран восстанавливает последнюю версию, а не ждёт следующего случайного изменения.",
+        "Из двух записей с одной expected_version одна получает конфликт.",
+        "Потерянный сигнал между commit и publish в итоге обнаруживается сверкой или outbox.",
+        "Клиент другой рабочей области не читает и не подписывается на чужое состояние."
+      ],
+      "senior": [
+        "Добавьте сохраняемый журнал и проверку Last-Event-ID с fallback на snapshot.",
+        "Протестируйте медленного клиента и перезапуск API без неограниченного роста буферов."
+      ],
+      "deliver": [
+        "Две HTML-страницы/вкладки клиента и два API-экземпляра.",
+        "Диаграммы initial sync и reconnect.",
+        "Автотест конфликтов и запись сценария потери событий."
+      ],
+      "sources": [
+        "sse",
+        "pubsub",
+        "outbox"
+      ],
+      "id": 6
     },
     {
       "title": "S3: личное файловое хранилище",
@@ -4155,163 +4313,6 @@ html[data-atlas-access="locked"] .app,html[data-atlas-access="locked"] .sidebar,
         "outbox"
       ],
       "id": 5
-    },
-    {
-      "title": "Realtime: планшет и большой экран",
-      "level": "base",
-      "icon": "activity",
-      "tags": [
-        "WebSocket",
-        "SSE",
-        "Redis Pub/Sub",
-        "Версии"
-      ],
-      "topics": [
-        20,
-        22,
-        32,
-        36,
-        58,
-        63,
-        78
-      ],
-      "prereq": [
-        1
-      ],
-      "brief": "На планшете оператор меняет фильтр, на большом экране обновляется состояние. Пользователи могут быть подключены к разным экземплярам API. Спроектируйте доставку и восстановление, затем покажите демо в двух вкладках.",
-      "outcome": "Общий фильтр, push-обновления, версии и корректное переподключение.",
-      "scope": "Одна именованная рабочая область. Команды идут по HTTP, серверные изменения — через SSE или WebSocket.",
-      "load": "Учебный стенд: 2 API-процесса, 10 вкладок, не больше 5 изменений фильтра в секунду.",
-      "requirements": [
-        "Изменение фиксируется в БД, обе вкладки получают согласованную новую версию.",
-        "После минуты офлайн экран восстанавливает актуальное состояние.",
-        "Два оператора не перезаписывают изменения незаметно; конфликт имеет явный ответ.",
-        "Пользователь другой рабочей области не получает ни данные, ни события."
-      ],
-      "design": [
-        "Нарисуйте команды HTTP отдельно от потока событий и межсерверной рассылки.",
-        "Спроектируйте version и expected_version; выберите конфликтную политику.",
-        "Разберите гонку: получен snapshot, но подписка ещё не установлена.",
-        "Выберите способ восстановления пропущенных событий и сценарий сбоя межсерверной шины."
-      ],
-      "theory": [
-        [
-          "SSE или WebSocket",
-          "SSE — серверный поток событий; обратные команды можно передавать HTTP. WebSocket подходит, когда нужен двусторонний канал. Выбор протокола сам по себе не восстанавливает состояние."
-        ],
-        [
-          "Pub/Sub — не журнал",
-          "Redis Pub/Sub не хранит события для отсутствующего подписчика. Для восстановления нужен snapshot, собственный журнал или другой сохраняемый механизм."
-        ]
-      ],
-      "answerDiagram": {
-        "nodes": [
-          {
-            "id": "1",
-            "label": "Планшет",
-            "x": 40,
-            "y": 40
-          },
-          {
-            "id": "2",
-            "label": "API A",
-            "x": 335,
-            "y": 40
-          },
-          {
-            "id": "3",
-            "label": "PostgreSQL",
-            "x": 630,
-            "y": 40
-          },
-          {
-            "id": "4",
-            "label": "API B",
-            "x": 40,
-            "y": 190
-          },
-          {
-            "id": "5",
-            "label": "Большой экран",
-            "x": 335,
-            "y": 190
-          },
-          {
-            "id": "6",
-            "label": "Redis Pub/Sub",
-            "x": 630,
-            "y": 190
-          }
-        ],
-        "edges": [
-          {
-            "from": "1",
-            "to": "2",
-            "label": "PATCH + version"
-          },
-          {
-            "from": "2",
-            "to": "3",
-            "label": "commit state"
-          },
-          {
-            "from": "2",
-            "to": "6",
-            "label": "сигнал"
-          },
-          {
-            "from": "6",
-            "to": "4",
-            "label": "сигнал"
-          },
-          {
-            "from": "4",
-            "to": "5",
-            "label": "SSE / WS"
-          },
-          {
-            "from": "4",
-            "to": "3",
-            "label": "snapshot"
-          }
-        ]
-      },
-      "solution": [
-        "В БД храните workspace_state(id, payload, version). PATCH с expected_version атомарно меняет состояние и версию. Конфликт возвращает текущую версию, а не молча затирает чужое изменение.",
-        "Для учебного варианта сначала устанавливайте подписку и буферизуйте события, затем читайте snapshot; применяйте только более новые версии. При разрыве или пропуске версии снова запрашивайте snapshot. Если используется replay, храните ограниченный журнал и сообщайте клиенту, когда его cursor слишком стар.",
-        "Pub/Sub используйте как ускоряющий сигнал. Чтобы пропущенный publish при живом соединении не оставил экран старым навсегда, добавьте outbox/сверку либо периодическую проверку версии. Авторизуйте как HTTP, так и подписку на рабочую область. Ограничьте буфер медленного клиента."
-      ],
-      "tradeoff": "Для фильтра важнее последнее состояние, чем доставка каждой промежуточной версии. Для финансового журнала такая потеря промежуточных событий была бы другой задачей.",
-      "contract": "GET   /workspaces/{id}/state  → {version:7, filters:{...}}\nPATCH /workspaces/{id}/state  body {expected_version:7, filters:{...}}\nGET   /workspaces/{id}/events → text/event-stream\nSSE: id: 8\n     event: state_changed\n     data: {\"version\":8}",
-      "build": [
-        "Реализуйте state API с версией и проверкой доступа.",
-        "Добавьте SSE или WebSocket и два тестовых клиента.",
-        "Запустите два API-процесса и межсерверную рассылку.",
-        "Добавьте snapshot/reconnect, обнаружение пропуска версии и страховочную сверку.",
-        "Воспроизведите offline, конфликт двух операторов и отказ Redis."
-      ],
-      "tests": [
-        "Изменение на планшете видно на экране, подключённом к другому API.",
-        "После офлайн экран восстанавливает последнюю версию, а не ждёт следующего случайного изменения.",
-        "Из двух записей с одной expected_version одна получает конфликт.",
-        "Потерянный сигнал между commit и publish в итоге обнаруживается сверкой или outbox.",
-        "Клиент другой рабочей области не читает и не подписывается на чужое состояние."
-      ],
-      "senior": [
-        "Добавьте сохраняемый журнал и проверку Last-Event-ID с fallback на snapshot.",
-        "Протестируйте медленного клиента и перезапуск API без неограниченного роста буферов."
-      ],
-      "deliver": [
-        "Две HTML-страницы/вкладки клиента и два API-экземпляра.",
-        "Диаграммы initial sync и reconnect.",
-        "Автотест конфликтов и запись сценария потери событий."
-      ],
-      "sources": [
-        "sse",
-        "pubsub",
-        "outbox"
-      ],
-      "id": 6
     },
     {
       "title": "Kafka: события заказов и аналитика",
@@ -7855,7 +7856,8 @@ html[data-atlas-access="locked"] .app,html[data-atlas-access="locked"] .sidebar,
       ]
     }
   ]
-}</script>
+}
+</script>
 <script>
 'use strict';
 // Полностью автономное приложение. Внешние URL используются только в ссылках на документацию.
@@ -8000,7 +8002,7 @@ function setRoute(){
  const changed=next!==previousRoute||taskId!==previousId||tab!==previousTab;
  ui.route=next;ui.lab.taskId=taskId;ui.lab.tab=tab;
  $$('.nav-link').forEach(a=>{const current=a.dataset.route===next;a.classList.toggle('active',current);if(current)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
- $('#crumb-page').textContent=titles[next]+(taskId?' / Проект '+String(taskId).padStart(2,'0'):'');
+ $('#crumb-page').textContent=titles[next]+(taskId?' / Проект '+String(labNumber(labTask(taskId))).padStart(2,'0'):'');
  document.title=(taskId?labTask(taskId).title:titles[next])+' — Backend Atlas';
  $('#search').value=ui.search[next];
  $('#search').placeholder={technologies:'Найти технологию или комментарий…',topics:'Найти тему в плане обучения…',questions:'Поиск по вопросам, ответам и тегам…',tasks:'Найти задачу: S3, промокоды, графики, AI…'}[next];
@@ -8178,6 +8180,7 @@ function taskCount(t,prefix='test'){const s=taskState(t.id);return s.checks.filt
 function taskPercent(t){return Math.round(taskCount(t)/t.tests.length*100);}
 function taskStatus(id){return taskState(id).status;}
 function labLink(t,tab='brief'){return '#tasks/'+t.id+'/'+tab;}
+function labNumber(t){return t.project?t.id:LAB.tasks.filter(x=>!x.project).findIndex(x=>x.id===t.id)+1;}
 function labTabs(){return [['brief','Условие'],['design','Моя схема'],['solution','Разбор'],['build','Разработка'],['test','Проверка']];}
 function labList(items,ordered=false){const tag=ordered?'ol':'ul';return `<${tag} class="lab-list">${items.map(s=>`<li>${esc(s)}</li>`).join('')}</${tag}>`;}
 function labChecks(t,items,prefix){const s=taskState(t.id);return `<div class="lab-check-list">${items.map((text,i)=>{const key=prefix+'-'+i,checked=s.checks.includes(key);return `<label class="lab-check ${checked?'checked':''}" for="lab-check-${t.id}-${key}"><input type="checkbox" id="lab-check-${t.id}-${key}" data-lab-check="${key}" data-id="${t.id}" ${checked?'checked':''}><span><b>${prefix==='test'?'ПРОВЕРКА':prefix==='build'?'ШАГ':'АРТЕФАКТ'} ${String(i+1).padStart(2,'0')}</b>${esc(text)}</span></label>`;}).join('')}</div>`;}
@@ -8201,19 +8204,19 @@ function renderTasks(){
  const shown=pool.filter(t=>(!window.atlasTaskVisible||window.atlasTaskVisible(t))&&(ui.category.tasks==='all'||t.level===ui.category.tasks)&&(ui.status.tasks==='all'||(ui.status.tasks==='overdue'?calendarTaskLate(t):taskStatus(t.id)===ui.status.tasks))&&matches(t.title,t.brief,t.outcome,...t.tags,...t.requirements,LAB_LEVELS.find(l=>l.id===t.level).title));
  $('#result-meta').innerHTML=`<span>Показано <strong>${shown.length} из ${total}</strong> задач</span><span>Поиск по условиям и технологиям · без спойлеров</span>`;
  $('#results').innerHTML=shown.length?`<div class="lab-grid">${shown.map(t=>{
- const st=taskStatus(t.id),pct=taskPercent(t),lv=LAB_LEVELS.find(l=>l.id===t.level);return `<article class="lab-card" data-lab-card="${t.id}"><div class="lab-card-top"><span class="lab-card-icon">${icon(t.icon)}</span><span class="lab-level ${t.level}">${lv.title}</span><span class="lab-id">ПРОЕКТ ${String(t.id).padStart(2,'0')}</span></div><h3><a class="lab-title-link" href="${labLink(t)}">${highlight(t.title)}</a></h3><p class="lab-card-brief">${highlight(t.brief)}</p>${calendarTaskBadge(t)}<div class="lab-tags">${t.tags.map(x=>`<span>${highlight(x)}</span>`).join('')}</div><div class="lab-card-foot"><div class="lab-progress-label"><span class="current">${LAB_STATUS[st]}</span><span>${taskCount(t)} / ${t.tests.length} проверок</span></div><div class="lab-progress-bar"><i style="width:${pct}%"></i></div><div class="lab-card-footer"><span class="lab-count">${t.build.length} шагов разработки</span><a class="btn ${st==='todo'?'':'btn-primary'}" href="${labLink(t,st==='design'?'design':st==='building'?'build':st==='review'||st==='done'?'test':'brief')}">${st==='todo'?'Открыть задачу':st==='done'?'Посмотреть':'Продолжить'}${icon('chevron-right')}</a></div></div></article>`;
+ const st=taskStatus(t.id),pct=taskPercent(t),lv=LAB_LEVELS.find(l=>l.id===t.level);return `<article class="lab-card" data-lab-card="${t.id}"><div class="lab-card-top"><span class="lab-card-icon">${icon(t.icon)}</span><span class="lab-level ${t.level}">${lv.title}</span><span class="lab-id">ПРОЕКТ ${String(labNumber(t)).padStart(2,'0')}</span></div><h3><a class="lab-title-link" href="${labLink(t)}">${highlight(t.title)}</a></h3><p class="lab-card-brief">${highlight(t.brief)}</p>${calendarTaskBadge(t)}<div class="lab-tags">${t.tags.map(x=>`<span>${highlight(x)}</span>`).join('')}</div><div class="lab-card-foot"><div class="lab-progress-label"><span class="current">${LAB_STATUS[st]}</span><span>${taskCount(t)} / ${t.tests.length} проверок</span></div><div class="lab-progress-bar"><i style="width:${pct}%"></i></div><div class="lab-card-footer"><span class="lab-count">${t.build.length} шагов разработки</span><a class="btn ${st==='todo'?'':'btn-primary'}" href="${labLink(t,st==='design'?'design':st==='building'?'build':st==='review'||st==='done'?'test':'brief')}">${st==='todo'?'Открыть задачу':st==='done'?'Посмотреть':'Продолжить'}${icon('chevron-right')}</a></div></div></article>`;
  }).join('')}</div><div class="lab-section-note">${icon('info')}<span>Это учебные задания и ориентиры решений, а не готовые backend-сервисы. Код разрабатывается и тестируется в вашей среде. Все нагрузки — условия упражнений, не данные реальных компаний.</span></div>`:empty();
 }
 function renderTaskDetail(){
  const t=labTask();if(!t){ui.lab.taskId=null;renderTasks();return;}
  const s=taskState(t.id),level=LAB_LEVELS.find(l=>l.id===t.level),tab=ui.lab.tab;
- $('#page-intro').innerHTML=`<a class="lab-back" href="#tasks">${icon('chevron-right')}Все задачи</a><div class="lab-detail-heading"><div><div class="lab-heading-labels"><span class="lab-level ${t.level}">${level.title}</span><span class="lab-id">ПРОЕКТ ${String(t.id).padStart(2,'0')} / ${LAB.tasks.length}</span><span class="lab-small-tag">Любой backend-язык</span></div><h1>${esc(t.title)}</h1><p class="page-desc">${esc(t.outcome)}</p></div><div class="lab-head-actions"><button class="btn" data-action="lab-export-task" data-id="${t.id}">${icon('download')}Задание .md</button><button class="btn" data-action="lab-export-work" data-id="${t.id}">${icon('file')}Мой отчёт</button></div></div>`;
+ $('#page-intro').innerHTML=`<a class="lab-back" href="#tasks">${icon('chevron-right')}Все задачи</a><div class="lab-detail-heading"><div><div class="lab-heading-labels"><span class="lab-level ${t.level}">${level.title}</span><span class="lab-id">ПРОЕКТ ${String(labNumber(t)).padStart(2,'0')} / ${LAB.tasks.length}</span><span class="lab-small-tag">Любой backend-язык</span></div><h1>${esc(t.title)}</h1><p class="page-desc">${esc(t.outcome)}</p></div><div class="lab-head-actions"><button class="btn" data-action="lab-export-task" data-id="${t.id}">${icon('download')}Задание .md</button><button class="btn" data-action="lab-export-work" data-id="${t.id}">${icon('file')}Мой отчёт</button></div></div>`;
  $('#view-toolbar').innerHTML='';$('#result-meta').innerHTML='';
  $('#results').innerHTML=`<nav class="lab-tabs" aria-label="Этапы задачи">${labTabs().map(([key,label],i)=>`<a class="lab-tab ${tab===key?'active':''}" href="${labLink(t,key)}" ${tab===key?'aria-current="step"':''}><span class="step">${i+1}</span><span>${label}</span></a>`).join('')}</nav><div class="lab-detail-layout"><section class="lab-main" id="lab-stage" aria-label="${esc(labTabs().find(x=>x[0]===tab)[1])}">${labStage(t,tab)}${labFoot(t,tab)}</section>${labAside(t)}</div>`;
  if(tab==='design')initSketch(t);
 }
 function labAside(t){
- const s=taskState(t.id);return `<aside class="lab-aside" aria-label="Прогресс и материалы задачи"><div class="lab-side-panel"><h3>ВАШ ПРОГРЕСС</h3>${calendarTaskBadge(t)}<label class="sr-only" for="lab-status">Статус задачи</label><select id="lab-status" class="lab-status-select" data-lab-status="${t.id}">${Object.entries(LAB_STATUS).map(([k,l])=>`<option value="${k}" ${s.status===k?'selected':''}>${l}</option>`).join('')}</select><div class="lab-progress-label"><span>Приёмка</span><strong class="lab-meta-counter">${taskCount(t)} / ${t.tests.length}</strong></div><div class="lab-progress-bar"><i style="width:${taskPercent(t)}%"></i></div><p>Отметки — ваша проверка.<br>Страница не запускает и не оценивает код.</p><button class="btn" data-action="lab-plan" data-id="${t.id}">${icon('plus')}Связанные темы в план (${t.topics.length})</button></div><div class="lab-side-panel"><h3>ЧТО СДАТЬ</h3><ul class="lab-side-items">${t.deliver.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>${t.prereq.length?`<div class="lab-side-panel"><h3>ПОЛЕЗНО ПРОЙТИ РАНЬШЕ</h3>${t.prereq.map(id=>{const p=labTask(id);return `<a class="lab-related" href="${labLink(p)}"><b>${String(id).padStart(2,'0')}</b><span>${esc(p.title)}</span></a>`;}).join('')}<p style="margin-top:10px">Рекомендации, не блокировка доступа.</p></div>`:''}<div class="lab-side-panel"><h3>ДОКУМЕНТАЦИЯ</h3>${sourceLinks(t)}<div class="lab-doc-meta">Первоисточники проверены 16.10.2026. Условия, диаграммы и решения — авторские учебные материалы.</div></div></aside>`;
+ const s=taskState(t.id);return `<aside class="lab-aside" aria-label="Прогресс и материалы задачи"><div class="lab-side-panel"><h3>ВАШ ПРОГРЕСС</h3>${calendarTaskBadge(t)}<label class="sr-only" for="lab-status">Статус задачи</label><select id="lab-status" class="lab-status-select" data-lab-status="${t.id}">${Object.entries(LAB_STATUS).map(([k,l])=>`<option value="${k}" ${s.status===k?'selected':''}>${l}</option>`).join('')}</select><div class="lab-progress-label"><span>Приёмка</span><strong class="lab-meta-counter">${taskCount(t)} / ${t.tests.length}</strong></div><div class="lab-progress-bar"><i style="width:${taskPercent(t)}%"></i></div><p>Отметки — ваша проверка.<br>Страница не запускает и не оценивает код.</p><button class="btn" data-action="lab-plan" data-id="${t.id}">${icon('plus')}Связанные темы в план (${t.topics.length})</button></div><div class="lab-side-panel"><h3>ЧТО СДАТЬ</h3><ul class="lab-side-items">${t.deliver.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>${t.prereq.length?`<div class="lab-side-panel"><h3>ПОЛЕЗНО ПРОЙТИ РАНЬШЕ</h3>${t.prereq.map(id=>{const p=labTask(id);return `<a class="lab-related" href="${labLink(p)}"><b>${String(labNumber(p)).padStart(2,'0')}</b><span>${esc(p.title)}</span></a>`;}).join('')}<p style="margin-top:10px">Рекомендации, не блокировка доступа.</p></div>`:''}<div class="lab-side-panel"><h3>ДОКУМЕНТАЦИЯ</h3>${sourceLinks(t)}<div class="lab-doc-meta">Первоисточники проверены 16.10.2026. Условия, диаграммы и решения — авторские учебные материалы.</div></div></aside>`;
 }
 function labFoot(t,tab){const tabs=labTabs(),i=tabs.findIndex(x=>x[0]===tab);return `<div class="lab-foot-nav">${i>0?`<a class="btn previous" href="${labLink(t,tabs[i-1][0])}">${icon('chevron-right')}${tabs[i-1][1]}</a>`:'<span></span>'}${i<tabs.length-1?`<a class="btn btn-primary" href="${labLink(t,tabs[i+1][0])}">${tabs[i+1][1]}${icon('chevron-right')}</a>`:`<a class="btn" href="#tasks">К списку задач${icon('chevron-right')}</a>`}</div>`;}
 function labStage(t,tab){
@@ -8254,7 +8257,7 @@ function svgExport(t){
  downloadText(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${b.x} ${b.y} ${width} ${height}"><style>${AtlasDiagramEditor.svgStyles}text{font-family:Arial,sans-serif}</style><rect x="${b.x}" y="${b.y}" width="100%" height="100%" fill="#fbfcff"/>${svgInner(d,'export-'+t.id,false)}${labels}</svg>`,filename('task-'+t.id+'-diagram','svg'),'image/svg+xml;charset=utf-8');notify('Схема подготовлена в SVG.');
 }
 function labMarkdown(t,includeAnswer=false){
- let out=`# ${String(t.id).padStart(2,'0')}. ${t.title}\n\nУровень: ${LAB_LEVELS.find(l=>l.id===t.level).title}. Учебный кейс; язык на выбор.\n\n${t.brief}\n\n## Результат\n\n${t.outcome}\n\n## Границы\n\n${t.scope}\n\n${t.load}\n\n`;
+ let out=`# ${String(labNumber(t)).padStart(2,'0')}. ${t.title}\n\nУровень: ${LAB_LEVELS.find(l=>l.id===t.level).title}. Учебный кейс; язык на выбор.\n\n${t.brief}\n\n## Результат\n\n${t.outcome}\n\n## Границы\n\n${t.scope}\n\n${t.load}\n\n`;
  const section=(title,items)=>`## ${title}\n\n${items.map((s,i)=>`${i+1}. ${s}`).join('\n')}\n\n`;
  out+=section('Требования',t.requirements)+section('Сначала спроектируйте',t.design);
  out+='## Мини-справочник\n\n'+t.theory.map(([a,b])=>`### ${a}\n\n${b}\n`).join('\n')+'\n';

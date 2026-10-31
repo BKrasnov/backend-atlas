@@ -4,11 +4,11 @@
   const START='2026-10-26',DAY=86400000;
   const TECHNOLOGY_WEEKS=[
     ['api-1','api-2','api-3','data-1','infra-3','infra-4','testing-1','testing-2'],
+    ['api-7','api-8','infra-8'],
     ['storage-1','storage-2','storage-3','cloud-1','infra-5'],
     ['api-4','api-5','testing-4','observability-4'],
     ['data-4','testing-5','observability-1'],
     ['messaging-1','messaging-4'],
-    ['api-7','api-8','infra-8'],
     ['messaging-2','messaging-3'],
     ['data-2','testing-3','cicd-2'],
     ['data-3','infra-1'],
