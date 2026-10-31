@@ -8,9 +8,15 @@
 
 - [x] Контакты, новый опыт и библиотеки в исходнике PDF, проверка документа.
 - [x] Тест первым, затем alias `#resume`; финальная сборка и тест резюме.
-- [ ] Публикация интерфейса и безопасное обновление файла на VPS.
-- [ ] Проверка актуального PDF, страницы в браузере, неизменности остальных данных и завершения процессов.
+- [x] Публикация интерфейса и безопасное обновление файла на VPS.
+- [x] Проверка актуального PDF, страницы в браузере, неизменности остальных данных и завершения процессов.
 
 Документация для подбора библиотек: FastAPI WebSockets, HTTPX AsyncClient, Prometheus Python ASGI, python-json-logger, aio-pika и aiokafka; логирование через Grafana Alloy в Loki. Эти ссылки подтверждают совместимость примеров, а не фактический стаж кандидата.
 
 Проверки до публикации: PDF на двух страницах, 14 примеров с библиотеками, три кликабельные ссылки, старые заглушки контактов/образования удалены. Обе страницы отрисованы и осмотрены. `node scripts/build.mjs` и `npm run test:resumes` прошли. Исходник и PDF с контактами остаются в игнорируемом `output/`, в публичный репозиторий не добавляются.
+
+Релиз `f9636ad`, Pages run `41167761627` успешен. На VPS обновлена существующая версия документа: ревизия 26 → 27; все данные workspace за пределами списка резюме побайтно совпали по сериализованному хэшу. Снимок до обновления: `output/resumes-qa/live-before-2026-10-31.json`. Скачанный через интерфейс PDF: 91830 байт, SHA256 `68e7bd0f25c4aabe313ee387a7ea3ce43510534663ef01f38f13c257dd8d4ffd`, совпадает с исходником. `#resume` открывает `#resumes`; карточка, предпросмотр и скачивание проверены на опубликованном сайте. Снимок: `output/resume-work/2026-10-31/atlas-updated.png`.
+
+CPU/test-round не откладывали проверки. Тестовый сервер и браузер завершены, порт 57791 свободен; Python и Poppler также завершены. Пользовательская вкладка и существующая служба VPS оставлены.
+
+Ссылки: [WebSocket в FastAPI](https://fastapi.tiangolo.com/advanced/websockets/), [HTTPX AsyncClient](https://www.python-httpx.org/async/), [метрики ASGI](https://prometheus.github.io/client_python/exporting/http/asgi/), [python-json-logger](https://nhairs.github.io/python-json-logger/latest/quickstart/), [сбор логов в Loki](https://grafana.com/docs/loki/latest/send-data/), [aio-pika](https://docs.aio-pika.com/), [aiokafka](https://aiokafka.readthedocs.io/en/stable/index.html).
