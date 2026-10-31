@@ -26,10 +26,11 @@ function capture(port){
  try{
   browser=await playwright.chromium.launch({channel:process.platform==='win32'?'msedge':undefined,headless:true});capture(port);
   const context=await browser.newContext({viewport:{width:1450,height:1000},acceptDownloads:true});page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(url+'/#resumes');assert.equal(await page.locator('.app').isVisible(),false);
+  await page.goto(url+'/#resume');assert.equal(await page.locator('.app').isVisible(),false);
   await page.getByLabel('Ключ доступа',{exact:true}).fill(token);await page.getByRole('button',{name:'Войти',exact:true}).click();await page.getByText('Синхронизировано',{exact:true}).waitFor();
   await page.evaluate(()=>{const ws=window.atlasWorkspace.read();delete ws.candidates[0].profile.resumes;window.atlasWorkspace.replace(ws);});
   assert.equal(await page.getByRole('heading',{name:'Список резюме',exact:true}).count(),1);assert.equal(await page.getByText('Резюме пока нет',{exact:true}).count(),1);
+  assert.equal(new URL(page.url()).hash,'#resumes','The shared singular resume link opens the canonical list');
   await page.evaluate(resume=>{const ws=window.atlasWorkspace.read();ws.candidates[0].profile.resumes=[resume];ws.candidates[0].profile.tech['api-1']='yes';window.atlasWorkspace.replace(ws);},resume);
   assert.equal(await page.locator('.resume-card').count(),1);assert.ok((await page.locator('.resume-card').innerText()).includes('Условный стаж: 5 лет'));
   await page.getByRole('button',{name:'Просмотреть резюме',exact:true}).click();await page.locator('.resume-preview img').waitFor();

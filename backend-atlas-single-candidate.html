@@ -8618,6 +8618,7 @@ renderPage=function(){AtlasResumes.releasePreview();if(!ws){baseRender();return;
  updateSidebar();syncSidebar();};
 window.removeEventListener('hashchange',baseSetRoute);
 setRoute=function(){
+ if(location.hash==='#resume'){location.replace('#resumes');return;}
  if(location.hash.startsWith('#calendar/')){const week=Number(location.hash.split('/')[1]);if(Number.isInteger(week)&&week>=1&&week<=18){calendarView.openWeeks.add(week);calendarView.month=AtlasLearningCalendar.weekRange(week).due.slice(0,7);calendarView.filter='all';}}
  if(location.hash==='#candidates'){location.replace('#profile');return;}baseSetRoute();if(extraRoutes.includes(ui.route)){const placeholders={vacancy:'Поиск материалов в редакторе…',profile:'',resumes:'',interview:'Поиск вопросов и задач для встречи…',summary:'', 'bot-project':'Поиск задач по своему проекту…',calendar:''};$('#search').placeholder=placeholders[ui.route];$('#search').setAttribute('aria-label',placeholders[ui.route]||'Поиск');}if(ui.route==='calendar'&&/^#calendar\/([1-9]|1[0-8])$/.test(location.hash))requestAnimationFrame(()=>document.getElementById('calendar-week-'+location.hash.split('/')[1])?.scrollIntoView({block:'start'}));};
 window.addEventListener('hashchange',setRoute);
